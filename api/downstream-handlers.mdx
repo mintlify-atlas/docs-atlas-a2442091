@@ -1,0 +1,71 @@
+---
+title: "Downstream handler classes and interfaces"
+description: "Reference for Strongram downstream handlers that post-process outgoing messages, including AddDefaultKeyboardDownstreamHandler."
+---
+
+Downstream handlers run after an upstream handler sends a response. They can modify outgoing `BotApiMethod` calls — for example, attaching a default reply keyboard to every text message.
+
+---
+
+## `DownstreamHandler` interface
+
+The base contract for all downstream handlers. Framework-internal; you typically extend `BaseDownstreamHandler` rather than implementing this interface directly.
+
+---
+
+## `BaseDownstreamHandler`
+
+Abstract base class providing default no-op behaviour. Extend this class and override only the response types you need to intercept.
+
+```java
+public class MyDownstreamHandler extends BaseDownstreamHandler {
+    @Override
+    public void process(SendMessage message) {
+        message.setText("[prefix] " + message.getText());
+    }
+}
+```
+
+---
+
+## `AddDefaultKeyboardDownstreamHandler`
+
+Attaches a `ReplyKeyboardMarkup` to every `SendMessage` that passes through the downstream chain. This is the most common downstream handler.
+
+### Constructors
+
+<ParamField path="keyboard" type="ReplyKeyboardMarkup" required>
+  A static keyboard that is attached to every outgoing message.
+</ParamField>
+
+```java
+ReplyKeyboardMarkup keyboard = ReplyKeyboardMarkup.builder()
+    .keyboardRow(new KeyboardRow(List.of(
+        new KeyboardButton("Settings"),
+        new KeyboardButton("Help")
+    )))
+    .resizeKeyboard(true)
+    .build();
+
+chain.add(new AddDefaultKeyboardDownstreamHandler(keyboard));
+```
+
+---
+
+<ParamField path="keyboardProvider" type="Function<Optional<RequestContext>, ReplyKeyboardMarkup>" required>
+  A function that receives the current `RequestContext` (wrapped in `Optional`) and returns a keyboard. Use this overload when the keyboard depends on the current user or context.
+</ParamField>
+
+```java
+chain.add(new AddDefaultKeyboardDownstreamHandler(ctxOpt -> {
+    boolean isAdmin = ctxOpt
+        .map(ctx -> isAdmin(ctx.getUser()))
+        .orElse(false);
+
+    return isAdmin ? adminKeyboard() : defaultKeyboard();
+}));
+```
+
+<Note>
+  The `Optional<RequestContext>` may be empty when a message is sent outside of an active update processing cycle (e.g., from a scheduled job). Always handle the empty case.
+</Note>

@@ -1,0 +1,117 @@
+---
+title: "ChainedBot — base class for Strongram bots"
+description: "ChainedBot is the abstract base class all Strongram bots extend. Override configureUpstream() and configureDownstream() to register handler chains."
+---
+
+`ChainedBot` extends `BaseBot` and provides the handler-chain wiring model used by every Strongram bot. You register upstream and downstream handlers by overriding two protected methods that receive an `OrderConfigurator`.
+
+## Constructor
+
+<ParamField path="botUsername" type="String" required>
+  The Telegram bot username (without the `@` prefix).
+</ParamField>
+
+```java
+public class MyBot extends ChainedBot {
+    public MyBot() {
+        super("my_bot_username");
+    }
+}
+```
+
+## Chain configuration methods
+
+### `configureUpstream(OrderConfigurator<UpstreamHandler> chain)`
+
+Override this method to register upstream handlers. Upstream handlers process every incoming `Update` in the order they are added.
+
+```java
+@Override
+protected void configureUpstream(OrderConfigurator<UpstreamHandler> chain) {
+    chain.add(new ExceptionReportUpstreamHandler());
+    chain.add(new DialogUpstreamHandler());
+    chain.add(new MyCommandHandler());
+    chain.add(new CannotProcessUpstreamHandler());
+}
+```
+
+### `configureDownstream(OrderConfigurator<DownstreamHandler> chain)`
+
+Override this method to register downstream handlers. Downstream handlers post-process every outgoing response in the order they are added.
+
+```java
+@Override
+protected void configureDownstream(OrderConfigurator<DownstreamHandler> chain) {
+    chain.add(new AddDefaultKeyboardDownstreamHandler(myKeyboard));
+}
+```
+
+## Inherited methods
+
+### `getUsername()`
+
+<ResponseField name="return" type="String">
+  The bot username supplied to the constructor.
+</ResponseField>
+
+### `getResponderFactory()`
+
+<ResponseField name="return" type="ResponserFactory">
+  The underlying responder factory. Cast to `SmartResponderFactory` when you need to create responders for arbitrary chat IDs (e.g., for Spring DI). Inside handlers, use `ctx.getBotResponderFactory()` instead.
+</ResponseField>
+
+---
+
+## `OrderConfigurator<T>` methods
+
+`OrderConfigurator` is the object passed to `configureUpstream` and `configureDownstream`. It manages an ordered list of handlers and lets you insert handlers relative to each other.
+
+<ResponseField name="add(T handler)" type="void">
+  Appends a handler to the end of the chain.
+</ResponseField>
+
+<ResponseField name="addBefore(Class<? extends T> type, T handler)" type="void">
+  Inserts `handler` immediately before the first handler whose class matches `type`.
+</ResponseField>
+
+<ResponseField name="addAfter(Class<? extends T> type, T handler)" type="void">
+  Inserts `handler` immediately after the first handler whose class matches `type`.
+</ResponseField>
+
+<ResponseField name="asList()" type="List<T>">
+  Returns the current handler list. Useful for inspection or testing.
+</ResponseField>
+
+---
+
+## Complete class skeleton
+
+```java
+public class MyBot extends ChainedBot {
+
+    public MyBot() {
+        super("my_bot_username");
+    }
+
+    @Override
+    protected void configureUpstream(OrderConfigurator<UpstreamHandler> chain) {
+        chain.add(new ExceptionReportUpstreamHandler());
+        chain.add(new DialogUpstreamHandler());
+        chain.add(new MyCommandHandler());
+        chain.add(new CannotProcessUpstreamHandler());
+    }
+
+    @Override
+    protected void configureDownstream(OrderConfigurator<DownstreamHandler> chain) {
+        chain.add(new AddDefaultKeyboardDownstreamHandler(myKeyboard()));
+    }
+
+    private ReplyKeyboardMarkup myKeyboard() {
+        // build and return your default keyboard
+    }
+}
+```
+
+<Note>
+  Both `configureUpstream` and `configureDownstream` have empty default implementations, so you only need to override the ones you use.
+</Note>

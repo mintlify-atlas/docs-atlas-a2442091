@@ -1,0 +1,122 @@
+---
+title: "Send proactive messages with SmartResponderFactory"
+description: "Use SmartResponderFactory to send Telegram messages outside of request handlers — for notifications, scheduled reminders, and broadcasts."
+---
+
+`ctx.getResponder()` is only available inside a handler while processing an incoming update. When you need to send a message from a scheduled job, an event listener, or any other place outside the handler chain, use `SmartResponderFactory` instead.
+
+## `ctx.getResponder()` vs `SmartResponderFactory`
+
+| | `ctx.getResponder()` | `SmartResponderFactory` |
+|---|---|---|
+| **Where it works** | Inside a handler, during request processing | Anywhere in the application |
+| **Chat ID source** | Automatically taken from the incoming update | You supply the chat ID |
+| **Lifecycle** | Bound to the current request | Long-lived; safe to inject as a singleton |
+| **Typical use** | Replying to a user message | Notifications, broadcasts, scheduled reminders |
+
+## Getting the factory
+
+### Inside a handler
+
+```java
+SmartResponderFactory factory = ctx.getBotResponderFactory();
+```
+
+### Outside a handler (for DI or setup code)
+
+```java
+SmartResponderFactory factory = bot.getResponderFactory();
+```
+
+## Sending a message
+
+Call `createSmart(uuid)` with a `TelegramUUID` to get a `SmartResponder` bound to that user's chat, then call `send` on it:
+
+```java
+// Build a TelegramUUID from a stored chat ID
+TelegramUUID uuid = new TelegramUUID(new Chat(chatId, "private"));
+
+// Plain text
+factory.createSmart(uuid).send("Your order has shipped.");
+
+// Media with a caption
+factory.createSmart(uuid).send("Here is your invoice:", invoiceFile, SmartResponder.MediaType.Document);
+```
+
+<Note>
+  `createSmart` accepts a `TelegramUUID`, not a raw `Long`. You can store the `TelegramUUID` from `ctx.getUUID()` during request handling and reuse it later for proactive messages.
+</Note>
+
+The resulting `SmartResponder` supports the same `send` and `sendForObject` methods as the in-handler responder. See [SmartResponder](/guides/sending-messages) for the full API.
+
+## Notification service example
+
+```java
+@Service
+public class NotificationService {
+
+    @Autowired
+    private SmartResponderFactory responderFactory;
+
+    public void notify(TelegramUUID uuid, String message) {
+        responderFactory.createSmart(uuid).send(message);
+    }
+}
+```
+
+## Broadcast example
+
+```java
+@Service
+public class BroadcastService {
+
+    @Autowired
+    private SmartResponderFactory responderFactory;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    public void broadcast(String message) {
+        for (TelegramUUID uuid : userRepository.getAllUUIDs()) {
+            responderFactory.createSmart(uuid).send(message);
+        }
+    }
+}
+```
+
+## Spring Boot DI pattern
+
+Expose the factory as a `@Bean` so you can inject it into any Spring-managed component:
+
+```java
+@Configuration
+public class BotConfig {
+
+    @Bean
+    SmartResponderFactory responderFactory(MyBot bot) {
+        return (SmartResponderFactory) bot.getResponderFactory();
+    }
+}
+```
+
+Then inject it wherever you need it:
+
+```java
+@Service
+public class ReminderService {
+
+    @Autowired
+    private SmartResponderFactory responderFactory;
+
+    @Scheduled(cron = "0 9 * * *")
+    public void sendDailyReminder() {
+        for (TelegramUUID uuid : subscriberRepository.getAllUUIDs()) {
+            responderFactory.createSmart(uuid).send("Good morning! Here is your daily summary.");
+        }
+    }
+}
+```
+
+<Tip>
+  `SmartResponderFactory` is thread-safe. You can share a single instance across multiple services and call it from concurrent threads without additional synchronization.
+</Tip>

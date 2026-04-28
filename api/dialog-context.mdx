@@ -1,0 +1,106 @@
+---
+title: "DialogContext — state and storage within a dialog step"
+description: "DialogContext is passed to every dialog handler, providing access to dialog-scoped storage, state transitions, and dialog lifecycle control."
+---
+
+`DialogContext<STATE_ENUM>` is passed as the second argument to every `DialogPart` handler. It gives you full control over the dialog: read/write state, access dialog-scoped storage, and stop the dialog when the conversation is complete.
+
+---
+
+## Interface methods
+
+### `getDialogScopeStorage()`
+
+<ResponseField name="return" type="Storage">
+  A `Storage` instance that persists for the entire lifetime of the dialog — across multiple user messages and state transitions.
+</ResponseField>
+
+Use dialog-scoped storage to accumulate data across steps:
+
+```java
+// In ASK_NAME step:
+dCtx.getDialogScopeStorage().set("name", ctx.getRequest(As.messageText()));
+dCtx.setState(OrderState.ASK_ADDRESS);
+
+// Later, in CONFIRM step:
+String name = dCtx.getDialogScopeStorage().get("name");
+```
+
+---
+
+### `setState(STATE_ENUM state)`
+
+<ParamField path="state" type="STATE_ENUM" required>
+  The next state the dialog should enter. The corresponding `DialogPart`'s `firstNotification` is sent on the user's next interaction.
+</ParamField>
+
+```java
+dCtx.setState(OrderState.ASK_ADDRESS);
+```
+
+<Note>
+  Calling `setState` does not immediately invoke the next part's handler — it schedules the transition for the next user message.
+</Note>
+
+---
+
+### `getState()`
+
+<ResponseField name="return" type="STATE_ENUM">
+  The current state of the dialog.
+</ResponseField>
+
+```java
+if (dCtx.getState() == OrderState.CONFIRM) {
+    // handle confirmation
+}
+```
+
+---
+
+### `stop()`
+
+Terminates the dialog. No further updates from this user will be routed to the dialog.
+
+```java
+ctx.getResponder().send("Order placed! Thank you.");
+dCtx.stop();
+```
+
+---
+
+### `isStopped()`
+
+<ResponseField name="return" type="boolean">
+  Returns `true` if `stop()` has been called on this dialog context.
+</ResponseField>
+
+```java
+if (dCtx.isStopped()) {
+    // dialog is finished, do cleanup
+}
+```
+
+---
+
+## Full step example
+
+```java
+BuildableDialogPart.<OrderState>builder()
+    .filter(Filters.hasMessageText())
+    .firstNotification("Confirm your order? (yes/no)")
+    .handler((ctx, dCtx) -> {
+        String answer = ctx.getRequest(As.messageText());
+        if ("yes".equalsIgnoreCase(answer)) {
+            String name    = dCtx.getDialogScopeStorage().get("name");
+            String address = dCtx.getDialogScopeStorage().get("address");
+            placeOrder(name, address);
+            ctx.getResponder().send("Order placed!");
+            dCtx.stop();
+        } else {
+            ctx.getResponder().send("Order cancelled.");
+            dCtx.stop();
+        }
+    })
+    .build();
+```

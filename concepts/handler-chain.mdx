@@ -1,0 +1,102 @@
+---
+title: "Handler chain: routing Telegram updates"
+description: "Understand how Strongram's chain-of-responsibility upstream pipeline routes incoming updates to the right handler using ordered UpstreamHandler instances."
+---
+
+The upstream handler chain is the core routing mechanism in Strongram. When a Telegram update arrives, it is passed to the first handler in the chain. Each handler either processes the update and stops, or calls `processNext(ctx)` to pass control to the next handler. This pattern gives you fine-grained control over routing without nested conditionals or a single monolithic handler.
+
+## The `UpstreamHandler` interface
+
+`UpstreamHandler` extends `Consumer<RequestContext>` and `NextConsumer<UpstreamHandler>`. You rarely implement it directly; use one of the abstract base classes instead.
+
+## Abstract base classes
+
+### `BaseUpstreamHandler`
+
+Extend `BaseUpstreamHandler` when you want full control over whether and when to continue the chain.
+
+```java
+public class MyHandler extends BaseUpstreamHandler {
+    @Override
+    protected void process(RequestContext ctx) {
+        // Inspect the context, do work, then optionally continue:
+        processNext(ctx);
+    }
+}
+```
+
+- Override `process(RequestContext ctx)` to implement your logic.
+- Call `processNext(ctx)` to forward the update to the next handler.
+- If you do not call `processNext`, the chain stops at this handler.
+
+### `FilteredUpstreamHandler`
+
+Extend `FilteredUpstreamHandler` when your handler should only activate for a specific subset of updates. The framework evaluates `getFilter()` automatically; if the filter does not match, the update is forwarded to the next handler without calling your code.
+
+```java
+public class MyTextHandler extends FilteredUpstreamHandler {
+    @Override
+    protected Filter getFilter() {
+        return Filters.isPrivateChat().and(Filters.hasMessageText());
+    }
+
+    @Override
+    protected void processFiltered(RequestContext ctx) {
+        String text = ctx.getRequest(As.messageText());
+        ctx.getResponder().send("Echo: " + text);
+    }
+}
+```
+
+- Override `getFilter()` to return the `Filter` that guards this handler.
+- Override `processFiltered(RequestContext ctx)` to implement your logic.
+- You do not need to call `processNext` from `processFiltered`; the handler terminates the chain for matching updates by default. Call `processNext(ctx)` explicitly if you want to continue after handling.
+
+See [Filters](/concepts/filters) for the full filter API.
+
+## Registering handlers with `OrderConfigurator`
+
+Override `configureUpstream` in your `ChainedBot` subclass and use the provided `OrderConfigurator<UpstreamHandler>` to register handlers in order:
+
+```java
+@Override
+protected void configureUpstream(OrderConfigurator<UpstreamHandler> chain) {
+    chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.debug()));
+    chain.add(new MyCommandHandler());
+    chain.add(new DialogUpstreamHandler());
+    chain.add(new CannotProcessUpstreamHandler());
+}
+```
+
+### `OrderConfigurator` API
+
+| Method | Description |
+|---|---|
+| `add(T handler)` | Appends the handler to the end of the current list |
+| `addBefore(Class<? extends T>, T handler)` | Inserts `handler` immediately before the first instance of the given class |
+| `addAfter(Class<? extends T>, T handler)` | Inserts `handler` immediately after the first instance of the given class |
+
+`addBefore` and `addAfter` are useful when extending a base configuration, for example when a subclass needs to inject a handler relative to one installed by a parent class.
+
+## Recommended chain order
+
+| Position | Handler | Reason |
+|---|---|---|
+| First | `ExceptionReportUpstreamHandler` | Wraps the entire remaining chain in a try/catch so exceptions are reported to the user |
+| Middle | Your domain handlers | `CommandUpstreamHandler`, `TextCommandUpstreamHandler`, `InteractiveKeyboardUpstreamHandler`, `DialogUpstreamHandler`, custom handlers |
+| Last | `CannotProcessUpstreamHandler` | Terminal fallback; replies with a default message when no other handler matched |
+
+<Warning>
+If you omit `ExceptionReportUpstreamHandler`, unhandled exceptions inside any handler will propagate to the bot-level catch block in `ChainedBot`, which only logs the error without notifying the user.
+</Warning>
+
+## Pre-installed handlers
+
+| Handler | Purpose |
+|---|---|
+| `ExceptionReportUpstreamHandler` | Catches exceptions thrown by downstream handlers and sends a formatted error message to the user. Accepts an `ExceptionFormatter` (`ExceptionFormatters.info()` or `ExceptionFormatters.debug()`). |
+| `CommandUpstreamHandler` | Routes `/command` strings to registered command handlers. |
+| `TextCommandUpstreamHandler` | Routes plain-text trigger strings (without a leading `/`) to registered handlers. |
+| `InteractiveKeyboardUpstreamHandler` | Routes callback query payloads from interactive keyboard buttons to the button's registered handler. |
+| `DialogUpstreamHandler` | Checks whether the current UUID has an active dialog and delegates the update to the active `DialogPart` if so. |
+| `CannotProcessUpstreamHandler` | Terminal fallback that sends a configurable "cannot process" message. Defaults to a built-in string; pass a custom string to the constructor to override. |

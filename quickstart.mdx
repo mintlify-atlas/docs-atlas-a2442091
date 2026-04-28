@@ -1,81 +1,130 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: "Get started with Strongram"
+description: "Learn how to build and run your first Strongram Telegram bot in four steps, from Maven dependency to receiving messages."
 ---
 
-## Get started in three steps
+This guide walks you through building a working echo bot — a bot that replies to every text message with the same text back. You'll have it running in about five minutes.
 
-Get your documentation site running locally and make your first customization.
+## Prerequisites
 
-### Step 1: Set up your local environment
+- Java 17 or later
+- Maven 3.6 or later
+- A Telegram bot token from [@BotFather](https://t.me/BotFather)
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+## Build your first bot
 
-### Step 2: Deploy your changes
+<Steps>
+  <Step title="Add the dependency">
+    Add `strongram-longpolling` to your `pom.xml`. This pulls in `strongram-core` and the TelegramBots 9.x libraries automatically.
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    ```xml
+    <dependency>
+        <groupId>ru.daniil4jk</groupId>
+        <artifactId>strongram-longpolling</artifactId>
+        <version>0.5.0</version>
+    </dependency>
+    ```
+  </Step>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+  <Step title="Create the bot class">
+    Extend `ChainedBot` and override `getChain()` to register your handlers in order. The `ConfigurableChainFactory` lambda receives a configurator you call `.add()` on.
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```java
+    import ru.daniil4jk.strongram.core.bot.ChainedBot;
+    import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.ChainFactory;
+    import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.configurable.ConfigurableChainFactory;
 
-### Step 3: Go live
+    public class EchoBot extends ChainedBot {
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+        public EchoBot(String botUsername) {
+            super(botUsername);
+        }
+
+        @Override
+        protected ChainFactory getChain() {
+            return new ConfigurableChainFactory(chainOrderConfigurator -> {
+                chainOrderConfigurator.add(new EchoHandler());
+            });
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Implement the handler">
+    Extend `FilteredUpstreamHandler`. Override `getFilter()` to declare when this handler should run, and `processFiltered()` to handle matching updates.
+
+    `Filters.hasMessageText()` matches any update that contains a plain text message. `As.messageText()` extracts the message text from the context.
+
+    ```java
+    import ru.daniil4jk.strongram.core.context.request.RequestContext;
+    import ru.daniil4jk.strongram.core.filter.Filter;
+    import ru.daniil4jk.strongram.core.filter.Filters;
+    import ru.daniil4jk.strongram.core.upstream.FilteredUpstreamHandler;
+    import ru.daniil4jk.strongram.core.unboxer.As;
+
+    public class EchoHandler extends FilteredUpstreamHandler {
+
+        @Override
+        protected Filter getFilter() {
+            return Filters.hasMessageText();
+        }
+
+        @Override
+        protected void processFiltered(RequestContext ctx) {
+            String text = ctx.getRequest(As.messageText());
+            ctx.getResponder().send("You said: " + text);
+        }
+    }
+    ```
+  </Step>
+
+  <Step title="Start the application">
+    Create a `LongPollingBotApplication`, wrap your bot in a `LongPollingBotAdapter` with your token, and register it. The adapter handles the polling loop and wires the Telegram client automatically.
+
+    ```java
+    import ru.daniil4jk.strongram.longpolling.LongPollingBotApplication;
+    import ru.daniil4jk.strongram.longpolling.adapter.LongPollingBotAdapter;
+
+    public class Main {
+
+        public static void main(String[] args) throws Exception {
+            LongPollingBotApplication application = new LongPollingBotApplication();
+            application.registerBot(new LongPollingBotAdapter(
+                "YOUR_BOT_TOKEN",
+                new EchoBot("EchoBotUsername")
+            ));
+        }
+    }
+    ```
+
+    Replace `YOUR_BOT_TOKEN` with your token from BotFather and `EchoBotUsername` with your bot's username (without the `@`). Run the `main` method and send a text message to your bot — it should echo it back.
+  </Step>
+</Steps>
+
+<Note>
+The `LongPollingBotAdapter` constructor takes the **token** as the first argument and your **bot instance** as the second. The token is used by the polling adapter; the username is passed to `ChainedBot` and is used in Telegram API calls.
+</Note>
+
+## What just happened
+
+- `ChainedBot` builds the handler chain on first update and manages the request/response lifecycle.
+- `FilteredUpstreamHandler` runs `getFilter()` on every update. If the filter matches, it calls `processFiltered()`. If not, it passes the update to the next handler in the chain.
+- `ctx.getResponder().send(...)` queues the reply. Strongram sends it after the upstream pipeline finishes.
+- `LongPollingBotAdapter` runs a background thread to poll Telegram for updates and dispatch them to your bot.
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation" icon="box" href="/installation">
+    Learn about transitive dependencies and the webhook alternative.
+  </Card>
+  <Card title="Core concepts" icon="layer-group" href="/concepts/architecture">
+    Understand the full request lifecycle and handler chain.
+  </Card>
+  <Card title="Filters" icon="filter" href="/concepts/filters">
+    Explore the full filter API and how to combine conditions.
+  </Card>
+  <Card title="Dialogs" icon="comments" href="/guides/dialogs">
+    Build multi-step conversations with state machine dialogs.
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

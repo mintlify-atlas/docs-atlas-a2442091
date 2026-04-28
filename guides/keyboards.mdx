@@ -1,0 +1,206 @@
+---
+title: "Interactive keyboards with action handlers"
+description: "Build inline and reply keyboards in Strongram where each button carries its own action lambda, automatically routed by InteractiveKeyboardUpstreamHandler."
+---
+
+Strongram's interactive keyboard system lets each button carry its own action lambda. When a user presses a button, `InteractiveKeyboardUpstreamHandler` routes the callback directly to that button's handler — no manual callback-data parsing required.
+
+## Button types
+
+### `InlineInteractiveButton`
+
+Extends `InlineKeyboardButton`. The button appears inside a message and sends a callback query when pressed.
+
+```java
+import ru.daniil4jk.strongram.core.keyboard.button.InlineInteractiveButton;
+
+new InlineInteractiveButton("Confirm", ctx -> {
+    ctx.getResponder().send("Order confirmed!");
+});
+```
+
+You can also supply explicit callback data if you need a stable identifier:
+
+```java
+new InlineInteractiveButton("Confirm", "confirm_order", ctx -> {
+    ctx.getResponder().send("Order confirmed!");
+});
+```
+
+If you omit callback data, Strongram uses the button label as the routing key.
+
+### `ReplyInteractiveButton`
+
+Extends `KeyboardButton`. The button appears in the persistent reply keyboard below the text input field.
+
+```java
+import ru.daniil4jk.strongram.core.keyboard.button.ReplyInteractiveButton;
+
+new ReplyInteractiveButton("My orders", ctx -> {
+    ctx.getResponder().send("Here are your recent orders...");
+});
+```
+
+The routing key for reply buttons is the button label text (returned by `getCallbackData()`, which delegates to `getText()`).
+
+## `InteractiveKeyboardHolder`
+
+`InteractiveKeyboardHolder` wraps either a `ReplyKeyboardMarkup` or an `InlineKeyboardMarkup` and tells `InteractiveKeyboardUpstreamHandler` which type to expect when extracting the routing key.
+
+<Tabs>
+  <Tab title="Inline keyboard">
+    ```java
+    import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+    import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow;
+    import ru.daniil4jk.strongram.core.keyboard.InteractiveKeyboardHolder;
+    import ru.daniil4jk.strongram.core.keyboard.button.InlineInteractiveButton;
+
+    InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder()
+        .keyboardRow(new InlineKeyboardRow(
+            new InlineInteractiveButton("Yes", ctx -> ctx.getResponder().send("You chose Yes.")),
+            new InlineInteractiveButton("No",  ctx -> ctx.getResponder().send("You chose No."))
+        ))
+        .build();
+
+    InteractiveKeyboardHolder holder = new InteractiveKeyboardHolder(markup);
+    ```
+  </Tab>
+  <Tab title="Reply keyboard">
+    ```java
+    import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+    import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+    import ru.daniil4jk.strongram.core.keyboard.InteractiveKeyboardHolder;
+    import ru.daniil4jk.strongram.core.keyboard.button.ReplyInteractiveButton;
+
+    KeyboardRow row = new KeyboardRow(
+        new ReplyInteractiveButton("My orders", ctx -> ctx.getResponder().send("Your orders...")),
+        new ReplyInteractiveButton("Support",   ctx -> ctx.getResponder().send("Contact us at..."))
+    );
+
+    ReplyKeyboardMarkup markup = ReplyKeyboardMarkup.builder()
+        .keyboard(List.of(row))
+        .resizeKeyboard(true)
+        .build();
+
+    InteractiveKeyboardHolder holder = new InteractiveKeyboardHolder(markup);
+    ```
+  </Tab>
+</Tabs>
+
+## `InteractiveKeyboardUpstreamHandler`
+
+Extend `InteractiveKeyboardUpstreamHandler` and override `getKeyboardHolder()` to return your holder. The handler automatically routes each incoming callback or text message to the matching button action.
+
+```java
+import ru.daniil4jk.strongram.core.keyboard.InteractiveKeyboardHolder;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.InteractiveKeyboardUpstreamHandler;
+
+public class MainMenuKeyboardHandler extends InteractiveKeyboardUpstreamHandler {
+
+    private static final InteractiveKeyboardHolder HOLDER = buildHolder();
+
+    @Override
+    protected InteractiveKeyboardHolder getKeyboardHolder() {
+        return HOLDER;
+    }
+
+    private static InteractiveKeyboardHolder buildHolder() {
+        InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder()
+            .keyboardRow(new InlineKeyboardRow(
+                new InlineInteractiveButton("About",   ctx -> ctx.getResponder().send("We are Strongram.")),
+                new InlineInteractiveButton("Contact", ctx -> ctx.getResponder().send("Email: hello@example.com"))
+            ))
+            .build();
+        return new InteractiveKeyboardHolder(markup);
+    }
+}
+```
+
+<Warning>
+  All `InteractiveButton` instances in the keyboard must be present when the handler initialises. The button map is built lazily on the first request and cached for the lifetime of the handler. If the keyboard contains no `InteractiveButton` instances, construction throws `IllegalArgumentException`.
+</Warning>
+
+## Registering in the chain
+
+```java
+chain.add(new MainMenuKeyboardHandler());
+```
+
+The handler uses a filter internally — it only intercepts messages or callback queries whose data matches one of the registered button keys. Unrecognized messages fall through to the next handler.
+
+## `AddDefaultKeyboardDownstreamHandler`
+
+`AddDefaultKeyboardDownstreamHandler` is a downstream handler that automatically attaches a keyboard to every outgoing message that does not already have one. This is useful for persistent reply keyboards that should appear on every response.
+
+```java
+import ru.daniil4jk.strongram.core.downstream.preinstalled.AddDefaultKeyboardDownstreamHandler;
+
+// Attach a fixed keyboard to all outgoing messages
+chain.addDownstream(new AddDefaultKeyboardDownstreamHandler(myReplyKeyboardMarkup));
+```
+
+You can also provide a function that receives the optional request context so the keyboard can vary per user or per chat:
+
+```java
+chain.addDownstream(new AddDefaultKeyboardDownstreamHandler(optionalCtx ->
+    optionalCtx.map(ctx -> getKeyboardForUser(ctx.getUUID().getUserId()))
+               .orElse(defaultKeyboard)
+));
+```
+
+The handler skips messages that already carry a keyboard — it only injects when the keyboard field is `null`.
+
+## Full inline keyboard example
+
+```java
+public class ProductMenuHandler extends CommandUpstreamHandler {
+
+    private static final InlineKeyboardMarkup MENU = buildMenu();
+
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of("menu", this::sendMenu);
+    }
+
+    private void sendMenu(RequestContext ctx, String[] args) {
+        SendMessage msg = SendMessage.builder()
+            .chatId(ctx.getUUID().getChatId())
+            .text("Choose an option:")
+            .replyMarkup(MENU)
+            .build();
+        ctx.getResponder().send(msg);
+    }
+
+    private static InlineKeyboardMarkup buildMenu() {
+        return InlineKeyboardMarkup.builder()
+            .keyboardRow(new InlineKeyboardRow(
+                new InlineInteractiveButton("Products", ctx ->
+                    ctx.getResponder().send("Here is our product catalogue.")),
+                new InlineInteractiveButton("Pricing", ctx ->
+                    ctx.getResponder().send("See pricing at example.com/pricing"))
+            ))
+            .keyboardRow(new InlineKeyboardRow(
+                new InlineInteractiveButton("Support", ctx ->
+                    ctx.getResponder().send("Email support@example.com"))
+            ))
+            .build();
+    }
+}
+```
+
+Register both handlers in the chain:
+
+```java
+chain.add(new ProductMenuHandler());       // sends the keyboard
+chain.add(new ProductMenuKeyboardHandler()); // routes button presses
+```
+
+## Inline keyboard vs reply keyboard
+
+| | Inline keyboard | Reply keyboard |
+|---|---|---|
+| **Appearance** | Attached to a specific message | Persistent bar below the text input |
+| **Routing key** | Callback query data | Message text matching button label |
+| **Button type** | `InlineInteractiveButton` | `ReplyInteractiveButton` |
+| **Dismissal** | Stays until the message is deleted or edited | Can be hidden with `RemoveKeyboard` |
+| **Use case** | Contextual actions on a specific message | Persistent navigation menu |

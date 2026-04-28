@@ -1,0 +1,105 @@
+---
+title: "Strongram architecture overview"
+description: "Learn how Strongram's three-layer architecture — upstream chain, business logic, and downstream pipeline — processes every Telegram update end-to-end."
+---
+
+Strongram structures every bot around a single, predictable pipeline. An incoming Telegram update enters at the transport layer, travels through an ordered upstream chain where your business logic lives, then passes through a downstream pipeline before the final API call reaches Telegram.
+
+## The pipeline at a glance
+
+```
+Telegram
+   │  (HTTP / long-polling)
+   ▼
+Transport adapter
+(strongram-longpolling  or  strongram-webhook)
+   │  Update
+   ▼
+ChainedBot.accept(Update, ResponseSink)
+   │  builds RequestContext
+   ▼
+┌──────────────────────────────────┐
+│        Upstream chain            │
+│                                  │
+│  UpstreamHandler 1               │
+│    └─► UpstreamHandler 2         │
+│           └─► UpstreamHandler 3  │
+│                  └─► …           │
+└──────────────────────────────────┘
+   │  Response objects
+   ▼
+┌──────────────────────────────────┐
+│       Downstream chain           │
+│                                  │
+│  DownstreamHandler 1             │
+│  DownstreamHandler 2  …          │
+└──────────────────────────────────┘
+   │  (possibly modified) Response
+   ▼
+ResponseSink  ──►  TelegramClient
+```
+
+## Update processing flow
+
+<Steps>
+  <Step title="Transport receives the update">
+    Either `strongram-longpolling` polls the Telegram Bot API or `strongram-webhook` receives an HTTP POST. Both adapters call `ChainedBot.accept(Update, ResponseSink)` with the raw update and a transport-level `ResponseSink`.
+  </Step>
+
+  <Step title="RequestContext is created">
+    `ChainedBot` instantiates a `RequestContextImpl` that wraps the update, derives a `TelegramUUID` (chat + user identity), and wires up a `SmartResponder` and request-scoped `Storage`.
+  </Step>
+
+  <Step title="Downstream wrapper is installed">
+    Before the upstream chain runs, the `ResponseSink` is wrapped by the downstream pipeline via `CallbackWrapper`. Every response emitted during this update will pass through the downstream handlers automatically.
+  </Step>
+
+  <Step title="Upstream chain processes the update">
+    The first `UpstreamHandler` in the ordered chain receives the `RequestContext`. Each handler either handles the update and stops, or calls `processNext(ctx)` to pass control to the next handler in the chain.
+  </Step>
+
+  <Step title="Downstream handlers post-process responses">
+    As responses flow out (e.g., when a handler calls `ctx.getResponder().send(...)`), each `DownstreamHandler` receives the `Response` and may modify it — for example, injecting a default keyboard — before it reaches the `ResponseSink`.
+  </Step>
+
+  <Step title="ResponseSink delivers to Telegram">
+    The final `ResponseSink` executes the Telegram Bot API call via `TelegramClient`, completing the round trip.
+  </Step>
+</Steps>
+
+## The two chains
+
+### Upstream chain (inbound)
+
+The upstream chain is an ordered list of `UpstreamHandler` instances. It implements the [chain-of-responsibility](https://refactoring.guru/design-patterns/chain-of-responsibility) pattern: each handler decides whether to handle the current update or pass it further down.
+
+You configure the upstream chain by overriding `configureUpstream(OrderConfigurator<UpstreamHandler>)` in your `ChainedBot` subclass. See [Handler chain](/concepts/handler-chain) for details.
+
+### Downstream chain (outbound)
+
+The downstream chain is an ordered list of `DownstreamHandler` instances. Each handler receives `(Optional<RequestContext>, PartialBotApiMethod<?>)` and can inspect or mutate outgoing API calls before they are sent.
+
+A common use case is `AddDefaultKeyboardDownstreamHandler`, which injects a default reply keyboard on every outgoing message so you never forget to include it.
+
+You configure the downstream chain by overriding `configureDownstream(OrderConfigurator<DownstreamHandler>)`.
+
+## Module structure
+
+| Module | Contents |
+|---|---|
+| `strongram-core` | `ChainedBot`, `UpstreamHandler` hierarchy, `DownstreamHandler`, `Filter` / `Filters`, `RequestContext`, `TelegramUUID`, `Storage`, `SmartResponder`, `Dialog` system, `OrderConfigurator` |
+| `strongram-longpolling` | Long-polling transport adapter wrapping `ChainedBot` |
+| `strongram-webhook` | Webhook transport adapter wrapping `ChainedBot` |
+
+## Extension points
+
+The framework manages the pipeline wiring, context lifecycle, and transport. You provide the business logic by overriding a small set of methods:
+
+| What you override | Purpose |
+|---|---|
+| `configureUpstream(OrderConfigurator)` | Register and order inbound handlers |
+| `configureDownstream(OrderConfigurator)` | Register outbound post-processors |
+| `FilteredUpstreamHandler.getFilter()` | Declare which updates a handler accepts |
+| `FilteredUpstreamHandler.processFiltered(RequestContext)` | Implement handler logic |
+
+Everything else — context creation, chain linkage, downstream wrapping, exception boundaries at the bot level — is handled by the framework.

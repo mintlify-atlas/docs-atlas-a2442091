@@ -1,0 +1,119 @@
+---
+title: "Integrate Strongram with Spring Boot"
+description: "Use FrameworkWebhookBotAdapter or expose SmartResponderFactory as a Spring bean to integrate Strongram bots into a Spring Boot application."
+---
+
+Strongram doesn't provide a Spring Boot starter, so integration is manual. This page covers two common patterns: receiving updates through a webhook controller, and exposing `SmartResponderFactory` as a bean so services can send proactive messages.
+
+<Note>
+  Strongram does not provide a Spring Boot auto-configuration or starter. You wire the components yourself using standard Spring beans.
+</Note>
+
+## Webhook integration
+
+Use `FrameworkWebhookBotAdapter` to receive updates through a Spring `@RestController`. The adapter handles Telegram API communication; your controller handles HTTP routing.
+
+### Register the adapter as a bean
+
+```java
+@Configuration
+public class BotConfig {
+
+    @Bean
+    public FrameworkWebhookBotAdapter botAdapter(YourBot bot) throws Exception {
+        FrameworkWebhookBotAdapter adapter = new FrameworkWebhookBotAdapter(
+            "YOUR_BOT_TOKEN",
+            "https://yourdomain.com",
+            bot,
+            Executors.newCachedThreadPool()
+        );
+        adapter.register(); // calls Telegram setWebhook
+        return adapter;
+    }
+}
+```
+
+### Create the webhook controller
+
+```java
+@RestController
+public class WebhookController {
+
+    private final FrameworkWebhookBotAdapter adapter;
+
+    public WebhookController(FrameworkWebhookBotAdapter adapter) {
+        this.adapter = adapter;
+    }
+
+    @PostMapping("/webhook/bot")
+    public BotApiMethod<?> onUpdate(@RequestBody Update update) {
+        return adapter.consumeUpdate(update);
+    }
+}
+```
+
+The path `/webhook/bot` must match the domain path you registered with Telegram. Telegram sends a JSON `Update` object as the request body; Spring deserializes it automatically if the TelegramBots Jackson module is on the classpath.
+
+### Unregister on shutdown
+
+Implement `DisposableBean` or use `@PreDestroy` to remove the webhook when the application stops:
+
+```java
+@PreDestroy
+public void shutdown() throws Exception {
+    adapter.unregister(); // calls Telegram deleteWebhook
+}
+```
+
+## Expose SmartResponderFactory as a bean
+
+`SmartResponderFactory` lets any Spring service send proactive messages to users without knowing about the underlying bot or Telegram API directly.
+
+### Register the factory
+
+```java
+@Configuration
+public class BotConfig {
+
+    @Bean
+    public SmartResponderFactory responderFactory(YourBot bot) {
+        return (SmartResponderFactory) bot.getResponderFactory();
+    }
+}
+```
+
+### Inject it into a service
+
+```java
+@Service
+public class OrderNotificationService {
+
+    @Autowired
+    private SmartResponderFactory responderFactory;
+
+    public void notifyStatus(TelegramUUID uuid, String status) {
+        responderFactory.createSmart(uuid).send("Status: " + status);
+    }
+}
+```
+
+Call `notifyStatus` from anywhere in your application — a scheduled job, a REST handler, or an event listener — to send a Telegram message to a specific user.
+
+## Using long polling with Spring Boot
+
+If your deployment doesn't have a public HTTPS URL, you can use long polling instead. Register `LongPollingBotApplication` as a bean and start it on application startup:
+
+```java
+@Configuration
+public class BotConfig {
+
+    @Bean
+    public LongPollingBotApplication longPollingBotApplication(YourBot bot) throws TelegramApiException {
+        LongPollingBotApplication application = new LongPollingBotApplication();
+        application.registerBot(new LongPollingBotAdapter("YOUR_BOT_TOKEN", bot));
+        return application;
+    }
+}
+```
+
+Spring manages the bean lifecycle, so the bot starts when the application context is ready. Add `strongram-longpolling` to your `pom.xml` as described in the [long polling guide](/deployment/long-polling).

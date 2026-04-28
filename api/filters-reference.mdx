@@ -1,0 +1,186 @@
+---
+title: "Filters — complete filter method reference"
+description: "Complete reference for all 40+ static methods on the Strongram Filters factory, organized by category: update type, content, chat type, text matching, and identity."
+---
+
+`Filters` is a static factory class. Every method returns a `Filter` — a functional predicate over a `RequestContext`. Filters can be composed with `.and()`, `.or()`, and `.negate()`.
+
+```java
+Filter f = Filters.hasMessage().and(Filters.hasText());
+Filter g = Filters.isPrivateChat().or(Filters.isGroupChat());
+Filter h = Filters.isCommand().negate();
+```
+
+---
+
+## Utility
+
+| Method | Description |
+|---|---|
+| `Filters.acceptAll()` | Always returns `true`. |
+| `Filters.rejectAll()` | Always returns `false`. |
+
+---
+
+## Update type
+
+These filters match on which field of the `Update` object is present.
+
+| Method | Matches when… |
+|---|---|
+| `hasMessage()` | Update has a `message`. |
+| `hasCallbackQuery()` | Update has a `callback_query`. |
+| `hasInlineQuery()` | Update has an `inline_query`. |
+| `hasEditedMessage()` | Update has an `edited_message`. |
+| `hasChannelPost()` | Update has a `channel_post`. |
+| `hasPoll()` | Update has a `poll`. |
+| `hasPollAnswer()` | Update has a `poll_answer`. |
+| `hasShippingQuery()` | Update has a `shipping_query`. |
+| `hasPreCheckoutQuery()` | Update has a `pre_checkout_query`. |
+| `hasMyChatMember()` | Update has a `my_chat_member`. |
+| `hasChatMember()` | Update has a `chat_member`. |
+| `hasChatJoinRequest()` | Update has a `chat_join_request`. |
+| `hasChosenInlineQuery()` | Update has a `chosen_inline_result`. |
+| `hasBusinessConnection()` | Update has a `business_connection`. |
+| `hasBusinessMessage()` | Update has a `business_message`. |
+| `hasEditedBusinessMessage()` | Update has an `edited_business_message`. |
+| `hasDeletedBusinessMessage()` | Update has a `deleted_business_messages`. |
+| `hasEditedChannelPost()` | Update has an `edited_channel_post`. |
+| `hasPaidMediaPurchased()` | Update has a `paid_media_purchased`. |
+
+---
+
+## Message content
+
+These filters inspect the content of the `message` (or `edited_message`, where applicable).
+
+| Method | Matches when… |
+|---|---|
+| `hasText()` | Update has any textual content (via `TextFinderService`). |
+| `hasMessageText()` | Message has a `text` field. |
+| `hasPhoto()` | Message contains a photo. |
+| `hasDocument()` | Message contains a document. |
+| `hasSticker()` | Message contains a sticker. |
+| `hasVideo()` | Message contains a video. |
+| `hasAudio()` | Message contains an audio file. |
+| `hasVoice()` | Message contains a voice note. |
+| `hasVideoNote()` | Message contains a video note. |
+| `hasContact()` | Message contains a contact. |
+| `hasLocation()` | Message contains a location. |
+| `hasAnimation()` | Message contains an animation (GIF). |
+| `hasGame()` | Message contains a game. |
+| `hasDice()` | Message contains a dice. |
+| `hasInvoice()` | Message contains an invoice. |
+| `hasPollInMessage()` | Message contains a poll (use `hasPoll()` for update-level poll updates). |
+| `hasSuccessfulPayment()` | Message contains a successful payment. |
+| `hasPassportData()` | Message contains Telegram Passport data. |
+| `hasCaption()` | Message has a caption. |
+| `hasEntities()` | Message has entities (bold, links, commands, etc.). |
+| `hasViaBot()` | Message was sent via an inline bot. |
+| `hasReplyMarkup()` | Message has a reply markup keyboard attached. |
+| `isCommand()` | Message text starts with `/`. |
+| `isReply()` | Message is a reply to another message. |
+| `hasMessageAutoDeleteTimerChanged()` | Message contains an auto-delete timer change. |
+| `hasVideoChatStarted()` | Message contains a video chat started event. |
+| `hasVideoChatEnded()` | Message contains a video chat ended event. |
+| `hasVideoChatScheduled()` | Message contains a video chat scheduled event. |
+| `hasVideoChatParticipantsInvited()` | Message contains a video chat participants invited event. |
+| `hasUserShared()` | Message contains a shared user. |
+| `hasChatShared()` | Message contains a shared chat. |
+| `hasStory()` | Message contains a story. |
+| `hasReplyToStory()` | Message is a reply to a story. |
+| `hasWebAppData()` | Message contains web app data. |
+| `hasWriteAccessAllowed()` | Message contains a write access allowed event. |
+| `hasBoostAdded()` | Message contains a boost added event. |
+| `hasGift()` | Message contains a gift. |
+| `hasUniqueGift()` | Message contains a unique gift. |
+| `hasPaidMedia()` | Message contains paid media. |
+| `hasPaidMessagePriceChanged()` | Message contains a paid message price change event. |
+| `hasPaidStarCount()` | Message has a paid star count. |
+
+---
+
+## Chat type
+
+| Method | Matches when… |
+|---|---|
+| `isPrivateChat()` | The chat type is `private`. |
+| `isGroupChat()` | The chat type is `group`. |
+| `isSuperGroupChat()` | The chat type is `supergroup`. |
+| `isChannelChat()` | The chat type is `channel`. |
+
+---
+
+## Text matching
+
+All text-matching filters operate on the full update text as resolved by `TextFinderService` (same as `As.text()`).
+
+| Method | Matches when… |
+|---|---|
+| `textStartWith(String prefix)` | Text starts with `prefix` (case-sensitive). |
+| `textEndsWith(String suffix)` | Text ends with `suffix` (case-sensitive). |
+| `textContains(String substring)` | Text contains `substring` (case-sensitive). |
+| `textContainsIgnoreCase(String substring)` | Text contains `substring` (case-insensitive). |
+| `textEquals(String value)` | Text equals `value` (case-sensitive). |
+| `textEqualsIgnoreCase(String value)` | Text equals `value` (case-insensitive). |
+
+---
+
+## Identity
+
+| Method | Matches when… |
+|---|---|
+| `userIdIs(Long userId)` | The `from.id` of the update equals `userId`. |
+| `chatIdIs(Long chatId)` | The chat ID equals `chatId`. |
+| `uuidEquals(TelegramUUID uuid)` | The resolved `TelegramUUID` matches `uuid`. |
+| `hasUser()` | The update has a `from` user. |
+| `hasChat()` | The update has an associated chat. |
+| `hasReplyChatId()` | The UUID has a resolvable reply chat ID (either chat or user). |
+
+---
+
+## Forum / topics
+
+| Method | Matches when… |
+|---|---|
+| `isTopicMessage()` | Message is in a forum topic thread. |
+| `hasForumTopicCreated()` | Message contains a `forum_topic_created` service event. |
+| `hasForumTopicClosed()` | Message contains a `forum_topic_closed` service event. |
+| `hasForumTopicReopened()` | Message contains a `forum_topic_reopened` service event. |
+
+---
+
+## Combinators
+
+Use these when you need to apply the same filter-factory function to multiple values.
+
+| Method | Description |
+|---|---|
+| `iterateOr(Function<T,Filter> factory, T first, T... rest)` | Returns `factory(first).or(factory(v1)).or(factory(v2))…` |
+| `iterateAnd(Function<T,Filter> factory, T first, T... rest)` | Returns `factory(first).and(factory(v1)).and(factory(v2))…` |
+
+```java
+// Match any of several user IDs
+Filter isAllowedUser = Filters.iterateOr(Filters::userIdIs, 111L, 222L, 333L);
+
+// Message must contain all of these words
+Filter hasAllKeywords = Filters.iterateAnd(Filters::textContainsIgnoreCase, "order", "confirm");
+```
+
+---
+
+## Composition (instance methods on `Filter`)
+
+Every `Filter` exposes three composition methods:
+
+| Method | Description |
+|---|---|
+| `filter.and(Filter other)` | Both filters must match. |
+| `filter.or(Filter other)` | Either filter must match. |
+| `filter.negate()` | The filter must not match. |
+
+```java
+Filter privateTextMessage = Filters.isPrivateChat()
+    .and(Filters.hasMessageText())
+    .and(Filters.isCommand().negate());
+```

@@ -1,0 +1,133 @@
+{
+  "projectType": "framework",
+  "projectName": "Strongram",
+  "projectDescription": "A modern Java framework for building Telegram bots with a chain-of-responsibility handler pipeline, dialog state machines, declarative filters, interactive keyboards, and a smart responder API.",
+  "theme": "palm",
+  "primaryColor": "#de2a0b",
+  "lightColor": "#ec947c",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/handler-chain",
+              "concepts/request-context",
+              "concepts/filters"
+            ]
+          },
+          {
+            "group": "Building Bots",
+            "pages": [
+              "guides/commands",
+              "guides/dialogs",
+              "guides/keyboards",
+              "guides/sending-messages",
+              "guides/error-handling"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/long-polling",
+              "deployment/webhook",
+              "deployment/spring-boot"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/downstream-handlers",
+              "advanced/smart-responder-factory",
+              "advanced/custom-extensions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Bot & Chain",
+            "pages": [
+              "api/chained-bot",
+              "api/upstream-handlers",
+              "api/downstream-handlers"
+            ]
+          },
+          {
+            "group": "Dialogs",
+            "pages": [
+              "api/dialog-impl",
+              "api/dialog-parts",
+              "api/dialog-context"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/filters-reference",
+              "api/as-unboxer",
+              "api/smart-responder",
+              "api/storage"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Chain-of-responsibility upstream handler pipeline with flexible ordering",
+    "Declarative filter system with 40+ pre-built predicates and composable and/or/negate combinators",
+    "State-machine dialog system with builder-based (BuildableDialogPart) and inheritance-based (ExtendableDialogPart) step definitions",
+    "Interactive keyboard support for inline and reply keyboards with per-button action lambdas",
+    "SmartResponder API for one-line message and media sending with automatic long-message splitting",
+    "SmartResponderFactory for sending proactive notifications outside of request handling",
+    "Modular architecture: plug in only long-polling or webhook transport modules",
+    "Pre-built handlers: CommandUpstreamHandler, TextCommandUpstreamHandler, DialogUpstreamHandler, ExceptionReportUpstreamHandler, CannotProcessUpstreamHandler",
+    "Pluggable dialog repository (in-memory by default) and SPI extension points for new update types",
+    "Downstream handler pipeline for post-processing outgoing messages (e.g., inject default keyboard)"
+  ],
+  "publicApiSurface": [
+    "ChainedBot (abstract) — primary bot base class; override configureUpstream() and configureDownstream()",
+    "BaseUpstreamHandler (abstract) — base for custom message handlers",
+    "FilteredUpstreamHandler (abstract) — filter-gated handler base",
+    "CommandUpstreamHandler (abstract) — Telegram /command routing",
+    "TextCommandUpstreamHandler (abstract) — plain-text command routing",
+    "InteractiveKeyboardUpstreamHandler (abstract) — keyboard button routing",
+    "DialogUpstreamHandler — built-in dialog state-machine handler",
+    "ExceptionReportUpstreamHandler — exception catch-and-report handler",
+    "CannotProcessUpstreamHandler — terminal fallback handler",
+    "DialogImpl<ENUM> — multi-step dialog with builder; DialogImpl.builder()",
+    "BuildableDialogPart<ENUM> — fluent builder for dialog steps",
+    "ExtendableDialogPart<ENUM> (abstract) — subclass-based dialog step",
+    "DialogContext<ENUM> — dialog-scope state + storage during dialog execution",
+    "Filter (functional interface) — Predicate<RequestContext> with and/or/negate",
+    "Filters (static factory) — 40+ pre-built Filter instances",
+    "As (static factory) — 70+ Unboxer extractors for Update data",
+    "SmartResponder — high-level send API (text, media, any BotApiMethod)",
+    "SmartResponderFactory — create SmartResponder for any chatId",
+    "RequestContext — per-update context: UUID, responder, storage, raw Update access",
+    "Storage — typed key-value bag (request scope and dialog scope)",
+    "InlineInteractiveButton — inline keyboard button with action lambda",
+    "ReplyInteractiveButton — reply keyboard button with action lambda",
+    "AddDefaultKeyboardDownstreamHandler — auto-inject keyboard into all outgoing messages",
+    "LongPollingBotAdapter — wraps ChainedBot for long-polling deployment",
+    "LongPollingBotApplication — registers and starts long-polling bots",
+    "WebhookBotAdapter — wraps ChainedBot for TelegramBots webhook server",
+    "WebhookBotApplication — registers and starts webhook bots",
+    "FrameworkWebhookBotAdapter — webhook adapter for external HTTP servers (Spring, etc.)"
+  ]
+}

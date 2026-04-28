@@ -1,0 +1,96 @@
+---
+title: "As — typed update data extractors"
+description: "The As factory provides 70+ static Unboxer methods for extracting typed data from Telegram Update objects. Use with ctx.getRequest(As.xxx())."
+---
+
+`As` is a static factory class. Each method returns an `Unboxer<T>` — a typed extractor that pulls a specific piece of data out of the current `RequestContext`. Pass an `Unboxer` to `ctx.getRequest(...)` to get the value.
+
+---
+
+## Usage
+
+```java
+// Inside any upstream handler or dialog part:
+String text     = ctx.getRequest(As.messageText());
+PhotoSize photo = ctx.getRequest(As.photo());
+Long chatId     = ctx.getRequest(As.chatId());
+```
+
+If the requested data is not present in the current update, `getRequest` returns `null` (or an empty `Optional`, depending on the unboxer variant). Always guard with a `Filters` check or a null check when the presence of the field is not guaranteed.
+
+---
+
+## Text
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.text()` | `String` | Any textual content from the update, resolved via `TextFinderService`. Covers message text, caption, callback data, etc. |
+| `As.messageText()` | `String` | `message.text` or `message.caption`, whichever is present. |
+| `As.callbackQueryData()` | `String` | `callback_query.data`. |
+
+---
+
+## Update-level objects
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.message()` | `Message` | `update.getMessage()`. |
+| `As.callbackQuery()` | `CallbackQuery` | `update.getCallbackQuery()`. |
+| `As.inlineQuery()` | `InlineQuery` | `update.getInlineQuery()`. |
+
+---
+
+## Media
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.photo()` | `PhotoSize` | Largest available photo size. |
+| `As.document()` | `Document` | Attached document. |
+| `As.video()` | `Video` | Attached video. |
+| `As.audio()` | `Audio` | Attached audio file. |
+| `As.voice()` | `Voice` | Voice note. |
+| `As.animation()` | `Animation` | GIF animation. |
+| `As.videoNote()` | `VideoNote` | Video note (round video). |
+| `As.sticker()` | `Sticker` | Attached sticker. |
+
+---
+
+## Location and contact
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.location()` | `Location` | Shared location. |
+| `As.contact()` | `Contact` | Shared contact. |
+| `As.venue()` | `Venue` | Shared venue. |
+
+---
+
+## Interactive content
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.poll()` | `Poll` | Native poll. |
+| `As.dice()` | `Dice` | Dice roll. |
+| `As.game()` | `Game` | Game payload. |
+
+---
+
+## Sender and chat
+
+| Method | Return type | Description |
+|---|---|---|
+| `As.user()` | `User` | The `from` user of the update. |
+| `As.chat()` | `Chat` | The chat the update originated from. |
+| `As.chatId()` | `Long` | Convenience shorthand for `chat.id`. |
+| `As.userId()` | `Long` | Convenience shorthand for `user.id`. |
+
+---
+
+## Naming pattern
+
+All `As` methods follow the same naming pattern as the Telegram Bot API field names. If you need a field not listed above, check for `As.<fieldName>()` — with 70+ methods in the factory, most Bot API fields have a corresponding extractor.
+
+```java
+// General pattern
+SomeType value = ctx.getRequest(As.someFieldName());
+```

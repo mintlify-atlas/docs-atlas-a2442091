@@ -1,133 +1,75 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
-icon: 'star'
+title: "Strongram: Java framework for Telegram bots"
+description: "Strongram documentation hub: quickstart guides, core concepts, API reference, and deployment instructions for the Java Telegram bot framework."
 ---
 
-## Setting up
+Strongram is a modular Java framework built on top of the TelegramBots library that lets you build production-ready Telegram bots with clean, structured code. Instead of dealing with raw `Update` objects and manual dispatch logic, Strongram gives you a composable chain of handlers, a powerful filter system, multi-step dialog flows, interactive keyboards, and a one-line message API — all wired together with a minimal setup.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build your first Strongram bot in minutes with a working echo bot example.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Installation" icon="box" href="/installation">
+    Add Strongram to your Maven project — choose Long Polling or Webhook transport.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Core Concepts" icon="layer-group" href="/concepts/architecture">
+    Understand the handler chain, request context, filters, and downstream pipeline.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api/chained-bot">
+    Full reference for all classes, interfaces, and methods in Strongram.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## What you can build
 
-Everything you need to create world-class documentation.
+<CardGroup cols={2}>
+  <Card title="Commands" icon="terminal" href="/guides/commands">
+    Route `/command` and plain-text commands to handler methods with argument parsing.
+  </Card>
+  <Card title="Multi-step dialogs" icon="comments" href="/guides/dialogs">
+    Build state-machine conversations that span multiple messages with scoped storage.
+  </Card>
+  <Card title="Interactive keyboards" icon="keyboard" href="/guides/keyboards">
+    Attach action lambdas directly to inline and reply keyboard buttons.
+  </Card>
+  <Card title="Sending messages" icon="paper-plane" href="/guides/sending-messages">
+    Send text, photos, documents, and videos in one line with SmartResponder.
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Key features
 
-## Make your content agent ready
+<AccordionGroup>
+  <Accordion title="Chain-of-responsibility handler pipeline">
+    Every incoming Telegram update flows through an ordered list of `UpstreamHandler` instances. Each handler either processes the update or passes it to the next handler in the chain. You control the exact order — add exception reporters first, domain handlers in the middle, and a fallback handler last.
+  </Accordion>
+  <Accordion title="40+ declarative filters">
+    `Filters.hasMessageText()`, `Filters.isPrivateChat()`, `Filters.textContains("buy")`, and 40 more static factories. Combine them with `.and()`, `.or()`, and `.negate()` to express any routing condition without boilerplate `if` trees.
+  </Accordion>
+  <Accordion title="State-machine dialogs">
+    `DialogImpl` maps enum values to `DialogPart` steps. Each step declares its filter (when it can accept input), a notification message (sent when the step becomes active), and a handler that can advance state, read scoped storage, and stop the dialog.
+  </Accordion>
+  <Accordion title="Interactive keyboards">
+    `InlineInteractiveButton` and `ReplyInteractiveButton` carry their own `Consumer<RequestContext>` action. Register an `InteractiveKeyboardUpstreamHandler` and Strongram routes button presses to the right lambda automatically.
+  </Accordion>
+  <Accordion title="Modular transport">
+    Add `strongram-longpolling` for development and simple deployments, or `strongram-webhook` for production. Both share the same `ChainedBot` core — switch transports without changing your business logic.
+  </Accordion>
+</AccordionGroup>
 
-Make your docs work for humans and AI agents alike.
+## Getting started
 
-<Columns cols={2}>
-  <Card
-    title="Prompt component"
-    icon="robot"
-    href="/agent-ready/prompt"
-  >
-    Embed shareable AI prompts readers can copy or open in Cursor.
-  </Card>
-  <Card
-    title="Visibility"
-    icon="eye"
-    href="/agent-ready/visibility"
-  >
-    Show different content to humans and agents reading your docs.
-  </Card>
-  <Card
-    title="Contextual menu"
-    icon="bolt"
-    href="/agent-ready/contextual"
-  >
-    Give readers one-click access to Claude, ChatGPT, Cursor, and more.
-  </Card>
-  <Card
-    title="AI coding tools"
-    icon="wand-magic-sparkles"
-    href="/ai-tools/claude-code"
-  >
-    Set up Claude Code, Cursor, or Windsurf with Mintlify's skill.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<Steps>
+  <Step title="Add the dependency">
+    Add `strongram-longpolling` or `strongram-webhook` to your `pom.xml`. See [Installation](/installation) for the full Maven coordinates.
+  </Step>
+  <Step title="Create your bot class">
+    Extend `ChainedBot` and override `configureUpstream()` to register your handlers in order.
+  </Step>
+  <Step title="Implement handlers">
+    Extend `CommandUpstreamHandler`, `FilteredUpstreamHandler`, or `BaseUpstreamHandler` to handle messages, commands, and callbacks.
+  </Step>
+  <Step title="Start the application">
+    Wrap your bot in a `LongPollingBotAdapter` and register it with `LongPollingBotApplication` to start receiving updates.
+  </Step>
+</Steps>

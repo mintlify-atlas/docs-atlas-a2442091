@@ -1,0 +1,112 @@
+---
+title: "DialogPart: BuildableDialogPart and ExtendableDialogPart"
+description: "DialogPart defines a single step in a dialog flow. Use BuildableDialogPart for inline lambda-based steps or ExtendableDialogPart for class-based complex steps."
+---
+
+A `DialogPart` represents one step in a `DialogImpl` state machine. It is responsible for:
+
+1. Sending a prompt to the user when the dialog enters this step.
+2. Processing the user's response and advancing the dialog state.
+
+Two concrete implementations are provided: `BuildableDialogPart` for concise lambda-based steps, and `ExtendableDialogPart` for more complex class-based steps.
+
+---
+
+## `BuildableDialogPart`
+
+Construct a dialog part entirely with a fluent builder. All fields except `handler` are optional.
+
+```java
+DialogPart<OrderState> askNamePart = BuildableDialogPart.<OrderState>builder()
+    .filter(Filters.hasMessageText())
+    .firstNotification("Please enter your full name.")
+    .repeatNotification("Name not recognised — please try again.")
+    .handler((ctx, dCtx) -> {
+        String name = ctx.getRequest(As.messageText());
+        dCtx.getDialogScopeStorage().set("name", name);
+        dCtx.setState(OrderState.ASK_ADDRESS);
+    })
+    .onException(ex -> System.err.println("Dialog error: " + ex.getMessage()))
+    .build();
+```
+
+### Builder methods
+
+<ParamField path="filter" type="Filter">
+  Optional. Only processes the user's input when this filter matches. If the filter does not match, the `repeatNotification` is sent automatically.
+</ParamField>
+
+<ParamField path="firstNotification(String text)" type="BuildableDialogPart.Builder">
+  Text sent to the user the **first time** this step is entered. Mutually exclusive with the `BiConsumer` overload.
+</ParamField>
+
+<ParamField path="firstNotification(BiConsumer<RequestContext, Storage> notification)" type="BuildableDialogPart.Builder">
+  Callback invoked the first time this step is entered. Use when the prompt must be computed dynamically (e.g., from dialog-scoped storage).
+</ParamField>
+
+<ParamField path="repeatNotification(String text)" type="BuildableDialogPart.Builder">
+  Text sent when the user returns to this step after an invalid input.
+</ParamField>
+
+<ParamField path="repeatNotification(BiConsumer<RequestContext, Storage> notification)" type="BuildableDialogPart.Builder">
+  Callback variant of `repeatNotification`.
+</ParamField>
+
+<ParamField path="handler" type="TryProcess<STATE_ENUM>" required>
+  `(RequestContext ctx, DialogContext<STATE_ENUM> dCtx) -> void`. The main handler for the user's input. Call `dCtx.setState(...)` to advance, or `dCtx.stop()` to end the dialog.
+</ParamField>
+
+<ParamField path="onException" type="Consumer<Exception>">
+  Called if the `handler` throws. Use for logging or user-facing error messages.
+</ParamField>
+
+---
+
+## `ExtendableDialogPart`
+
+An abstract class for dialog steps that require more structure than lambdas allow. Override four methods to define behaviour.
+
+```java
+public class AskAddressPart extends ExtendableDialogPart<OrderState> {
+
+    @Override
+    protected Filter getFilter() {
+        return Filters.hasMessageText();
+    }
+
+    @Override
+    protected void firstNotification(RequestContext ctx, Storage storage) {
+        ctx.getResponder().send("Please enter your delivery address.");
+    }
+
+    @Override
+    protected void repeatNotification(RequestContext ctx, Storage storage) {
+        ctx.getResponder().send("Address not recognised — please try again.");
+    }
+
+    @Override
+    public void accept(RequestContext ctx, DialogContext<OrderState> dCtx) {
+        String address = ctx.getRequest(As.messageText());
+        dCtx.getDialogScopeStorage().set("address", address);
+        dCtx.setState(OrderState.CONFIRM);
+    }
+}
+```
+
+### Methods to override
+
+<ResponseField name="getFilter()" type="Filter">
+  Declares when this step accepts input. Return `Filters.acceptAll()` to process every update.
+</ResponseField>
+
+<ResponseField name="firstNotification(RequestContext ctx, Storage storage)" type="void">
+  Sends a prompt to the user on first entry. `storage` is the dialog-scoped `Storage`.
+</ResponseField>
+
+<ResponseField name="repeatNotification(RequestContext ctx, Storage storage)" type="void">
+  Sends a prompt when the user re-enters this step after invalid input.
+</ResponseField>
+
+<ResponseField name="accept(RequestContext ctx, DialogContext<STATE_ENUM> dCtx)" type="void">
+  Processes the user's input. Call `dCtx.setState(...)` or `dCtx.stop()` to control flow.
+</ResponseField>

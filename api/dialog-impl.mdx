@@ -1,0 +1,100 @@
+---
+title: "DialogImpl — multi-step dialog state machine"
+description: "DialogImpl maps enum states to DialogPart steps, managing active conversations per user. Use the builder to wire states to dialog parts."
+---
+
+`DialogImpl` is a state machine that drives multi-step conversations. Each state in your enum maps to a `DialogPart` that handles user input for that step and decides which state to transition to next (or whether to stop the dialog).
+
+---
+
+## Builder
+
+The recommended way to construct a `DialogImpl`.
+
+```java
+DialogImpl<OrderState> dialog = DialogImpl.<OrderState>builder()
+    .initState(OrderState.ASK_NAME)
+    .part(OrderState.ASK_NAME,    askNamePart)
+    .part(OrderState.ASK_ADDRESS, askAddressPart)
+    .part(OrderState.CONFIRM,     confirmPart)
+    .storage(myStorage)   // optional
+    .build();
+```
+
+### Builder methods
+
+<ParamField path="initState" type="STATE_ENUM" required>
+  The state the dialog starts in when first activated.
+</ParamField>
+
+<ParamField path="part(STATE_ENUM state, DialogPart<STATE_ENUM> part)" type="DialogImpl.Builder">
+  Maps a state to its `DialogPart`. Call once per state. Returns the builder for chaining.
+</ParamField>
+
+<ParamField path="storage(Storage storage)" type="DialogImpl.Builder">
+  Optional. Provides a pre-populated `Storage` instance for dialog-scoped data. If omitted, an empty in-memory `Storage` is created automatically.
+</ParamField>
+
+---
+
+## Direct construction
+
+Use direct construction when you need to add parts dynamically after creation.
+
+```java
+DialogImpl<OrderState> dialog = new DialogImpl<>(OrderState.ASK_NAME);
+dialog.add(OrderState.ASK_NAME,    askNamePart);
+dialog.add(OrderState.ASK_ADDRESS, askAddressPart);
+```
+
+### `add(STATE_ENUM state, DialogPart<STATE_ENUM> part)`
+
+<ParamField path="state" type="STATE_ENUM" required>
+  The enum state this part handles.
+</ParamField>
+
+<ParamField path="part" type="DialogPart<STATE_ENUM>" required>
+  The dialog part to invoke when the dialog is in `state`.
+</ParamField>
+
+---
+
+## Starting a dialog
+
+To begin a dialog for the current user, place the `DialogImpl` instance in the **request-scoped storage** under the key `DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME`. `DialogUpstreamHandler` reads this key on the next update and takes ownership of the dialog.
+
+```java
+// Inside a command handler or any upstream handler
+(ctx, args) -> {
+    DialogImpl<OrderState> dialog = DialogImpl.<OrderState>builder()
+        .initState(OrderState.ASK_NAME)
+        .part(OrderState.ASK_NAME, askNamePart)
+        .part(OrderState.ASK_ADDRESS, askAddressPart)
+        .build();
+
+    ctx.getRequestStorage().add(
+        DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME,
+        dialog
+    );
+
+    ctx.getResponder().send("What is your name?");
+}
+```
+
+<Note>
+  A dialog is associated with the user who triggered the update. Subsequent updates from the same user are routed to the active dialog until `DialogContext.stop()` is called.
+</Note>
+
+---
+
+## State enum example
+
+```java
+public enum OrderState {
+    ASK_NAME,
+    ASK_ADDRESS,
+    CONFIRM
+}
+```
+
+The enum can have any number of values. `DialogImpl` does not require an explicit terminal state — call `dCtx.stop()` inside any `DialogPart` to end the dialog.

@@ -1,0 +1,121 @@
+---
+title: "Extend Strongram with custom finders and repositories"
+description: "Add support for new Telegram update types using the Finder SPI, replace the in-memory dialog store with a persistent repository, and configure update routing behavior."
+---
+
+Strongram exposes three extension points for advanced use cases: a `Finder` SPI for supporting new update types, a `DialogRepository` interface for persistent dialog storage, and an environment variable that controls edited-message routing.
+
+Most bots do not need these. They are intended for cases where the built-in update routing, in-memory storage, or update type support is insufficient.
+
+## Custom `Finder` SPI
+
+The `Finder<I, O>` interface lets you teach Strongram how to extract a value from an update type it does not handle by default.
+
+Registered finders are discovered automatically by `SPIFinderRegistry` via the standard Java `ServiceLoader` mechanism. Once registered, they are available to `TextFinderService` and `TelegramUUIDFinderService` without any further configuration.
+
+### Implementing a custom finder
+
+```java
+package com.example.bot.finders;
+
+import ru.daniil4jk.strongram.core.finder.Finder;
+
+public class PollAnswerTextFinder implements Finder<Update, String> {
+
+    @Override
+    public String find(Update input) {
+        if (input.hasPollAnswer()) {
+            return input.getPollAnswer().getOptionIds().toString();
+        }
+        return null;
+    }
+}
+```
+
+### Registering via `ServiceLoader`
+
+Create the provider configuration file at:
+
+```
+META-INF/services/ru.daniil4jk.strongram.core.finder.Finder
+```
+
+List your implementation class, one per line:
+
+```
+com.example.bot.finders.PollAnswerTextFinder
+```
+
+`SPIFinderRegistry` picks this up at startup and makes the finder available to the framework.
+
+## Custom `DialogRepository`
+
+By default, Strongram stores active dialog state in memory using `InMemoryDialogRepository`. This works for single-instance bots but does not survive restarts and cannot be shared across multiple instances.
+
+Implement `DialogRepository` to back dialog state with a database, Redis, or any other persistent store.
+
+### Interface contract
+
+```java
+// Retrieve all active dialog parts for a UUID
+List<Dialog> get(TelegramUUID uuid);
+
+// Persist one or more dialog parts for a UUID
+void addAll(TelegramUUID uuid, List<Dialog> dialogs);
+
+// Remove a specific dialog part for a UUID
+void remove(TelegramUUID uuid, Dialog dialog);
+```
+
+### Example: database-backed repository
+
+```java
+public class JpaDialogRepository implements DialogRepository {
+
+    @Autowired
+    private DialogEntityRepository entityRepository;
+
+    @Override
+    public List<Dialog> get(TelegramUUID uuid) {
+        return entityRepository.findByChatId(uuid.getChatId())
+            .stream()
+            .map(this::toDialog)
+            .collect(Collectors.toList());
+    }
+
+    @Override
+    public void addAll(TelegramUUID uuid, List<Dialog> dialogs) {
+        dialogs.forEach(d -> entityRepository.save(toEntity(uuid, d)));
+    }
+
+    @Override
+    public void remove(TelegramUUID uuid, Dialog dialog) {
+        entityRepository.deleteByChatIdAndDialogId(uuid.getChatId(), dialog.getId());
+    }
+}
+```
+
+### Registering the repository
+
+Pass your implementation to `DialogUpstreamHandler`:
+
+```java
+@Override
+protected void configureUpstream(OrderConfigurator<UpstreamHandler> chain) {
+    chain.add(new DialogUpstreamHandler(new JpaDialogRepository()));
+}
+```
+
+## Routing edited messages
+
+By default, edited messages are not routed through the upstream handler chain. Set the `PROCESS_EDITED_MESSAGE_VARIANTS` environment variable to `true` to pass edited messages through `UpdateFinder` and route them the same way as new messages:
+
+```bash
+PROCESS_EDITED_MESSAGE_VARIANTS=true
+```
+
+This is useful if your bot needs to react to users correcting their input.
+
+<Warning>
+  Enabling this setting means any handler that processes text messages will also fire when a user edits a previous message. Ensure your handlers are idempotent or add an explicit check for edited updates if this behavior is undesirable.
+</Warning>

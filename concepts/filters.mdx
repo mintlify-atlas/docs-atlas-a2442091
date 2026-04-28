@@ -1,0 +1,176 @@
+---
+title: "Declarative filters for message routing"
+description: "Strongram's Filter system lets you declare exactly which updates a handler accepts using 40+ pre-built predicates combined with and(), or(), and negate()."
+---
+
+A `Filter` is a `Predicate<RequestContext>` with one addition: its `and()`, `or()`, and `negate()` methods return `Filter` instead of `Predicate`, so you can chain calls fluently and the result is always a `Filter` ready to be returned from `getFilter()`.
+
+```java
+public interface Filter extends Predicate<RequestContext> {
+    Filter and(Predicate<? super RequestContext> other);
+    Filter or(Predicate<? super RequestContext> other);
+    Filter negate();
+}
+```
+
+## Using a filter in a handler
+
+Return a filter from `getFilter()` in any `FilteredUpstreamHandler`. The framework evaluates it before calling `processFiltered`; updates that do not match are automatically forwarded to the next handler.
+
+```java
+public class PrivateTextHandler extends FilteredUpstreamHandler {
+    @Override
+    protected Filter getFilter() {
+        return Filters.isPrivateChat().and(Filters.hasMessageText());
+    }
+
+    @Override
+    protected void processFiltered(RequestContext ctx) {
+        ctx.getResponder().send("Got your message.");
+    }
+}
+```
+
+## The `Filters` factory
+
+`Filters` is a static utility class with pre-built filter constructors organized by category.
+
+### Wildcards
+
+| Method | Matches |
+|---|---|
+| `acceptAll()` | Every update |
+| `rejectAll()` | No update |
+
+### Update type
+
+| Method | Matches |
+|---|---|
+| `hasMessage()` | Update contains a `Message` |
+| `hasCallbackQuery()` | Update contains a `CallbackQuery` |
+| `hasInlineQuery()` | Update contains an `InlineQuery` |
+| `hasChosenInlineQuery()` | Update contains a chosen inline result |
+| `hasEditedMessage()` | Update contains an edited message |
+| `hasChannelPost()` | Update contains a channel post |
+| `hasEditedChannelPost()` | Update contains an edited channel post |
+| `hasPoll()` | Update contains a `Poll` |
+| `hasPollAnswer()` | Update contains a `PollAnswer` |
+| `hasMyChatMember()` | Update contains a `ChatMemberUpdated` for the bot itself |
+| `hasChatMember()` | Update contains a `ChatMemberUpdated` |
+| `hasChatJoinRequest()` | Update contains a `ChatJoinRequest` |
+| `hasShippingQuery()` | Update contains a `ShippingQuery` |
+| `hasPreCheckoutQuery()` | Update contains a `PreCheckoutQuery` |
+| `hasPaidMediaPurchased()` | Update contains a paid media purchase |
+| `hasBusinessConnection()` | Update contains a `BusinessConnection` |
+| `hasBusinessMessage()` | Update contains a business message |
+| `hasEditedBusinessMessage()` | Update contains an edited business message |
+| `hasDeletedBusinessMessage()` | Update contains a deleted business message |
+
+### Message content
+
+| Method | Matches |
+|---|---|
+| `hasText()` | Update has extractable text (via `As.text()`) |
+| `hasMessageText()` | Message exists and has text |
+| `hasPhoto()` | Message contains a photo |
+| `hasDocument()` | Message contains a document |
+| `hasSticker()` | Message contains a sticker |
+| `hasVideo()` | Message contains a video |
+| `hasAudio()` | Message contains audio |
+| `hasVoice()` | Message contains a voice note |
+| `hasVideoNote()` | Message contains a video note |
+| `hasContact()` | Message contains a contact |
+| `hasLocation()` | Message contains a location |
+| `hasAnimation()` | Message contains an animation |
+| `hasGame()` | Message contains a game |
+| `hasPollInMessage()` | Message contains a poll |
+| `hasDice()` | Message contains a dice |
+| `hasInvoice()` | Message contains an invoice |
+| `hasSuccessfulPayment()` | Message contains a successful payment |
+| `hasPassportData()` | Message contains Telegram Passport data |
+| `hasCaption()` | Message has a caption |
+| `hasEntities()` | Message has message entities |
+| `isCommand()` | Message is a bot command (starts with `/`) |
+| `isReply()` | Message is a reply to another message |
+| `hasViaBot()` | Message was sent via an inline bot |
+| `hasReplyMarkup()` | Message has reply markup attached |
+| `hasStory()` | Message contains a story |
+| `hasReplyToStory()` | Message is a reply to a story |
+| `hasWebAppData()` | Message contains web app data |
+| `hasPaidMedia()` | Message contains paid media |
+| `hasGift()` | Message contains a gift |
+| `hasUniqueGift()` | Message contains a unique gift |
+
+### Chat type
+
+| Method | Matches |
+|---|---|
+| `isPrivateChat()` | Message is in a private (user) chat |
+| `isGroupChat()` | Message is in a group |
+| `isSuperGroupChat()` | Message is in a supergroup |
+| `isChannelChat()` | Message is in a channel |
+
+### Text matching
+
+All text-matching filters use the text extracted by `As.text()`, which covers message text and callback data.
+
+| Method | Matches |
+|---|---|
+| `textStartWith(String s)` | Text starts with `s` |
+| `textEndsWith(String s)` | Text ends with `s` |
+| `textContains(String s)` | Text contains `s` (case-sensitive) |
+| `textContainsIgnoreCase(String s)` | Text contains `s` (case-insensitive) |
+| `textEquals(String s)` | Text equals `s` exactly |
+| `textEqualsIgnoreCase(String s)` | Text equals `s` (case-insensitive) |
+
+### Identity
+
+| Method | Matches |
+|---|---|
+| `userIdIs(Long id)` | `uuid.user().getId()` equals `id` |
+| `chatIdIs(Long id)` | `uuid.chat().getId()` equals `id` |
+| `uuidEquals(TelegramUUID)` | UUID equals the given value |
+| `hasUser()` | `uuid.user()` is not null |
+| `hasChat()` | `uuid.chat()` is not null |
+
+### Combinators
+
+| Method | Description |
+|---|---|
+| `iterateOr(Function<T, Filter>, T first, T... rest)` | Applies the factory to each value and combines results with `or` |
+| `iterateAnd(Function<T, Filter>, T first, T... rest)` | Applies the factory to each value and combines results with `and` |
+
+## Composing filters
+
+Use `and()`, `or()`, and `negate()` to build composite conditions:
+
+```java
+// Private chat that has text
+Filter filter = Filters.isPrivateChat().and(Filters.hasMessageText());
+
+// Not a command
+Filter filter = Filters.isCommand().negate();
+
+// Photo or document
+Filter filter = Filters.hasPhoto().or(Filters.hasDocument());
+```
+
+## Multi-value matching with `iterateOr` and `iterateAnd`
+
+`iterateOr` is useful when a handler should accept any one of several specific values:
+
+```java
+// Accept "yes", "no", or "maybe" (case-insensitive)
+Filter filter = Filters.hasMessageText().and(
+    Filters.iterateOr(
+        Filters::textEqualsIgnoreCase,
+        "yes", "no", "maybe"
+    )
+);
+```
+
+`iterateAnd` applies the factory to each value and requires all results to be true — use it when a single piece of text must satisfy several independent predicates simultaneously.
+
+<Note>
+`iterateOr` and `iterateAnd` require at least one value argument in addition to the factory. Passing zero values will not compile because the first value parameter is not variadic.
+</Note>

@@ -1,0 +1,130 @@
+---
+title: "Send messages, media, and files with SmartResponder"
+description: "Use Strongram's SmartResponder to send text, photos, documents, and videos in a single method call, with automatic long-message splitting."
+---
+
+Every handler receives a `SmartResponder` through `ctx.getResponder()`. It provides a concise API for the most common send operations without requiring you to construct Telegram-specific DTO objects by hand.
+
+## Plain text
+
+```java
+ctx.getResponder().send("Hello, world!");
+```
+
+Messages longer than 4096 characters are split automatically by the `LongMessage` utility into multiple messages, each within Telegram's limit.
+
+## Media with a caption
+
+```java
+ctx.getResponder().send(caption, file, SmartResponder.MediaType.Photo);
+```
+
+The second argument is a `java.io.File` pointing to the file on disk. The third argument is one of the `SmartResponder.MediaType` enum values:
+
+| Value | Telegram type |
+|---|---|
+| `Photo` | `sendPhoto` |
+| `Video` | `sendVideo` |
+| `Audio` | `sendAudio` |
+| `Voice` | `sendVoice` |
+| `Document` | `sendDocument` |
+
+### Examples
+
+```java
+// Photo
+File photo = new File("images/banner.jpg");
+ctx.getResponder().send("Here is your photo:", photo, SmartResponder.MediaType.Photo);
+
+// Document
+File pdf = new File("reports/summary.pdf");
+ctx.getResponder().send("Your report:", pdf, SmartResponder.MediaType.Document);
+
+// Video
+File video = new File("clips/intro.mp4");
+ctx.getResponder().send("Watch this:", video, SmartResponder.MediaType.Video);
+
+// Audio
+File audio = new File("tracks/song.mp3");
+ctx.getResponder().send("Listen:", audio, SmartResponder.MediaType.Audio);
+
+// Voice message
+File voice = new File("recordings/note.ogg");
+ctx.getResponder().send("Voice note:", voice, SmartResponder.MediaType.Voice);
+```
+
+## Sending to an explicit chat ID
+
+All `send` and `sendForObject` methods have overloads that accept a `Long` chat ID as the first argument. Use these when you need to send a message to a chat other than the one the current request came from.
+
+```java
+Long targetChatId = 123456789L;
+ctx.getResponder().send(targetChatId, "Notification from admin.");
+```
+
+```java
+ctx.getResponder().send(targetChatId, "Here is your file:", file, SmartResponder.MediaType.Document);
+```
+
+## Getting sent message objects
+
+`sendForObject` returns a `CompletableFuture<List<Message>>` containing the Telegram `Message` objects that were sent. This is useful when you need the message ID for later editing or deletion.
+
+```java
+CompletableFuture<List<Message>> future = ctx.getResponder().sendForObject("Processing your request...");
+
+future.thenAccept(messages -> {
+    Message sent = messages.get(0);
+    System.out.println("Sent message ID: " + sent.getMessageId());
+});
+```
+
+The same pattern applies to media:
+
+```java
+CompletableFuture<List<Message>> future =
+    ctx.getResponder().sendForObject("Here is your report:", file, SmartResponder.MediaType.Document);
+```
+
+And with an explicit chat ID:
+
+```java
+CompletableFuture<List<Message>> future =
+    ctx.getResponder().sendForObject(chatId, "Hello!");
+```
+
+## Long message auto-splitting
+
+When `send(String text)` is called with a message exceeding 4096 characters, Strongram splits it at the limit boundary and sends each chunk as a separate message. The split is handled by the `LongMessage` utility class, so you don't need to manage chunking manually.
+
+## Low-level `Responder` methods
+
+`SmartResponder` extends `Responder`, which accepts any Telegram API method object directly. Use these overloads when you need full control over the request parameters — for example, to set `parse_mode`, `reply_to_message_id`, or a custom keyboard.
+
+```java
+import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+
+SendMessage msg = SendMessage.builder()
+    .chatId(ctx.getUUID().getChatId())
+    .text("*Bold* and _italic_")
+    .parseMode("MarkdownV2")
+    .build();
+
+ctx.getResponder().send(msg);
+```
+
+Other supported low-level methods include `SendDocument`, `SendPhoto`, `SendVideo`, `SendAudio`, `SendVoice`, `SendMediaGroup`, `SendSticker`, and more. Each has a corresponding `sendForObject` overload that returns a `CompletableFuture` with the resulting Telegram object.
+
+## Sending messages outside of a handler
+
+When you need to send a message from a service or scheduled job rather than from within a handler, use `SmartResponderFactory`. Retrieve it from the bot instance and store it in your application context:
+
+```java
+SmartResponderFactory factory = (SmartResponderFactory) bot.getResponderFactory();
+
+// Later, anywhere in your application:
+// createSmart takes a TelegramUUID — store it from ctx.getUUID() during request handling
+factory.createSmart(uuid).send("Your order has shipped.");
+```
+
+See [SmartResponderFactory](/advanced/smart-responder-factory) for a full guide on proactive messaging.

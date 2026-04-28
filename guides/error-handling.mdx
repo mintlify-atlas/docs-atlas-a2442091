@@ -1,0 +1,142 @@
+---
+title: "Handle errors and unknown commands gracefully"
+description: "Use ExceptionReportUpstreamHandler and CannotProcessUpstreamHandler to catch exceptions and handle unrecognized inputs in Strongram bots."
+---
+
+Two built-in handlers cover the most common error scenarios in a Strongram bot: catching unexpected exceptions anywhere in the chain, and handling messages that no handler recognises.
+
+## `ExceptionReportUpstreamHandler`
+
+`ExceptionReportUpstreamHandler` wraps all subsequent handlers in a try-catch block. When an exception propagates up through the chain, it logs the error and sends a formatted message to the user.
+
+**Place it first in the chain** so it catches exceptions from every handler that follows.
+
+```java
+import ru.daniil4jk.strongram.core.upstream.preinstalled.ExceptionReportUpstreamHandler;
+import ru.daniil4jk.strongram.core.report.exception.ExceptionFormatters;
+
+chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.info()));
+```
+
+### `ExceptionFormatters`
+
+`ExceptionFormatters` provides two built-in formatters:
+
+| Factory method | What it sends to the user |
+|---|---|
+| `ExceptionFormatters.info()` | A user-friendly message with the exception's localized message. Example: `"An error occurred: [message]. You can TRY AGAIN or CONTACT the bot administrator."` |
+| `ExceptionFormatters.debug()` | The same user-friendly message **plus** the full stack trace appended below. Intended for development. |
+
+```java
+// Production — show a friendly message only
+chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.info()));
+
+// Development — include the full stack trace
+chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.debug()));
+```
+
+The no-argument constructor defaults to `ExceptionFormatters.info()`:
+
+```java
+chain.add(new ExceptionReportUpstreamHandler());
+```
+
+### Custom `ExceptionFormatter`
+
+`ExceptionFormatter` is a functional interface that extends `Function<Throwable, String>`. Implement it to control exactly what text is sent to the user.
+
+```java
+import ru.daniil4jk.strongram.core.report.exception.ExceptionFormatter;
+
+ExceptionFormatter myFormatter = throwable ->
+    "Something went wrong (" + throwable.getClass().getSimpleName() + "). "
+    + "Please try again or contact support.";
+
+chain.add(new ExceptionReportUpstreamHandler(myFormatter));
+```
+
+## `CannotProcessUpstreamHandler`
+
+`CannotProcessUpstreamHandler` is a terminal fallback that replies with a default message when no earlier handler in the chain processed the request. **Place it last in the chain.**
+
+```java
+import ru.daniil4jk.strongram.core.upstream.preinstalled.CannotProcessUpstreamHandler;
+
+chain.add(new CannotProcessUpstreamHandler());
+```
+
+The default message is `"I can't explain this request"`. You can provide a custom message:
+
+```java
+chain.add(new CannotProcessUpstreamHandler("Sorry, I don't understand that. Try /help."));
+```
+
+The handler only replies in two situations to avoid noise in groups:
+- The chat is a private (user) chat.
+- The message contains text (i.e. it is a text message, not a sticker, photo, etc.).
+
+In all other cases it silently ignores the update.
+
+## Handling "command not found" within `CommandUpstreamHandler`
+
+When a slash-command message arrives and none of the registered keys match, `CommandUpstreamHandler` calls `processNext(ctx)` to pass the message to the next handler. Placing `CannotProcessUpstreamHandler` at the end of the chain gives users a helpful reply in this case without any extra code in your command handler.
+
+If you need custom "unknown command" logic, add it in a handler positioned after your `CommandUpstreamHandler`:
+
+```java
+chain.add(new MyCommandHandler());
+chain.add(ctx -> {
+    // Only reaches here if MyCommandHandler didn't handle the message
+    if (ctx.getRequest(As.messageText()) != null
+            && ctx.getRequest(As.messageText()).startsWith("/")) {
+        ctx.getResponder().send("Unknown command. Use /help for a list of commands.");
+    }
+});
+```
+
+## Full robust bot example
+
+```java
+import ru.daniil4jk.strongram.core.bot.ChainedBot;
+import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.ChainFactory;
+import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.configurable.ConfigurableChainFactory;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.CannotProcessUpstreamHandler;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.ExceptionReportUpstreamHandler;
+import ru.daniil4jk.strongram.core.report.exception.ExceptionFormatters;
+
+public class RobustBot extends ChainedBot {
+
+    public RobustBot(String botToken) {
+        super(botToken);
+    }
+
+    @Override
+    protected ChainFactory getChain() {
+        return new ConfigurableChainFactory(chain -> {
+            // 1. Catch all exceptions — must be first
+            chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.info()));
+
+            // 2. Your application handlers
+            chain.add(new MyCommandHandler());
+            chain.add(new DialogUpstreamHandler());
+
+            // 3. Fallback for unrecognised input — must be last
+            chain.add(new CannotProcessUpstreamHandler("I don't understand that. Try /help."));
+        });
+    }
+}
+```
+
+## Production tips
+
+<Warning>
+  Do not use `ExceptionFormatters.debug()` in production. It sends the full Java stack trace to users, which exposes internal implementation details and may reveal sensitive information such as class paths, dependency names, and server layout.
+</Warning>
+
+<Tip>
+  Log exceptions server-side regardless of what you send to the user. `ExceptionReportUpstreamHandler` already logs at `ERROR` level via SLF4J before attempting to notify the user, so configure your log appender to capture these.
+</Tip>
+
+<Tip>
+  If sending the error notification itself fails (for example, the user has blocked the bot), the exception is silently swallowed to avoid cascading failures. Monitor your server logs for `ERROR` entries rather than relying solely on bot replies for visibility.
+</Tip>

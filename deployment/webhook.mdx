@@ -1,0 +1,120 @@
+---
+title: "Deploy a Strongram bot with webhooks"
+description: "Run your Strongram bot with webhooks using WebhookBotAdapter for a built-in server, or FrameworkWebhookBotAdapter to integrate with Spring Boot or any HTTP framework."
+---
+
+With webhooks, Telegram pushes updates to your server as HTTP POST requests instead of your bot polling for them. This is more efficient for production deployments and scales better under high message volume.
+
+Use webhooks when:
+- Your server has a publicly accessible HTTPS URL
+- You want lower latency and reduced API polling
+- You're integrating with an existing HTTP framework like Spring Boot
+
+For local development or environments without a public URL, use [long polling](/deployment/long-polling) instead.
+
+## Prerequisites
+
+- A publicly accessible domain with a valid TLS certificate (Telegram requires HTTPS)
+- The webhook URL must use port 443, 80, 88, or 8443
+
+## Add the dependency
+
+```xml pom.xml
+<dependency>
+    <groupId>ru.daniil4jk</groupId>
+    <artifactId>strongram-webhook</artifactId>
+    <version>0.5.0</version>
+</dependency>
+```
+
+## Setup
+
+Choose the approach that fits your deployment:
+
+<Tabs>
+  <Tab title="Built-in server">
+    `WebhookBotApplication` starts its own embedded webhook server and handles registration with Telegram automatically.
+
+    <Steps>
+      <Step title="Create the application">
+        ```java
+        WebhookBotApplication application = new WebhookBotApplication();
+        ```
+      </Step>
+      <Step title="Build the adapter">
+        Provide the public webhook URL, your bot token, and your bot instance:
+
+        ```java
+        WebhookBotAdapter adapter = new WebhookBotAdapter(
+            new URI("https://yourdomain.com/webhook/bot").toURL(),
+            "YOUR_BOT_TOKEN",
+            new MyBot("BotName")
+        );
+        ```
+
+        The path `/webhook/bot` is a convention — use any path you like, as long as it matches what Telegram will call.
+      </Step>
+      <Step title="Register and start">
+        ```java
+        application.registerBot(adapter);
+        ```
+
+        This registers the webhook URL with Telegram and starts listening for incoming requests.
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="Framework integration">
+    `FrameworkWebhookBotAdapter` lets you receive updates through your own HTTP server. You control the route, the server lifecycle, and the executor.
+
+    <Steps>
+      <Step title="Create the adapter">
+        ```java
+        FrameworkWebhookBotAdapter adapter = new FrameworkWebhookBotAdapter(
+            "YOUR_BOT_TOKEN",
+            "https://yourdomain.com",
+            new MyBot("BotName"),
+            executor
+        );
+        ```
+
+        `executor` is a `java.util.concurrent.Executor` used to process incoming updates. Pass a thread pool appropriate for your workload.
+      </Step>
+      <Step title="Register the webhook">
+        Call `register()` to tell Telegram where to send updates:
+
+        ```java
+        adapter.register();
+        ```
+
+        This calls the Telegram `setWebhook` API with your domain.
+      </Step>
+      <Step title="Route updates to the adapter">
+        In your HTTP controller, pass incoming update payloads to `consumeUpdate` and return the result:
+
+        ```java
+        BotApiMethod<?> reply = adapter.consumeUpdate(update);
+        ```
+
+        For Spring Boot, see the [Spring Boot integration guide](/deployment/spring-boot) for a complete controller example.
+      </Step>
+      <Step title="Unregister on shutdown">
+        Call `unregister()` when your application stops to remove the webhook from Telegram:
+
+        ```java
+        adapter.unregister();
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## HTTPS and URL requirements
+
+Telegram only delivers webhook updates over HTTPS. Your endpoint must:
+
+- Use a domain with a valid TLS certificate (self-signed is not accepted on port 443)
+- Be reachable on one of the allowed ports: `443`, `80`, `88`, or `8443`
+
+<Warning>
+  If Telegram cannot reach your webhook URL, updates will be silently dropped. Verify that the URL is publicly accessible before registering.
+</Warning>

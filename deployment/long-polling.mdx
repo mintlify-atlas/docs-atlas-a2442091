@@ -1,0 +1,93 @@
+---
+title: "Deploy a Strongram bot with long polling"
+description: "Run your Strongram bot with long polling using LongPollingBotApplication. Supports single-threaded, multi-threaded, and multiple concurrent bots."
+---
+
+Long polling is the simplest way to run a Strongram bot. Your application repeatedly asks the Telegram API for new updates, processes them, and repeats. No public URL or HTTPS certificate is required, making it ideal for local development and simple deployments.
+
+Use long polling when:
+- You're developing or testing locally
+- Your server doesn't have a publicly accessible URL
+- You want a straightforward setup with minimal infrastructure
+
+For production deployments with a public HTTPS endpoint, consider [webhooks](/deployment/webhook) instead.
+
+## Add the dependency
+
+Add `strongram-longpolling` to your `pom.xml`:
+
+```xml pom.xml
+<dependency>
+    <groupId>ru.daniil4jk</groupId>
+    <artifactId>strongram-longpolling</artifactId>
+    <version>0.5.0</version>
+</dependency>
+```
+
+## Basic setup
+
+<Steps>
+  <Step title="Implement your bot">
+    Create a class that extends the appropriate Strongram bot base class and implement your update-handling logic.
+  </Step>
+  <Step title="Create the adapter">
+    Wrap your bot in a `LongPollingBotAdapter`, providing your bot token and bot instance:
+
+    ```java
+    LongPollingBotAdapter adapter = new LongPollingBotAdapter("YOUR_BOT_TOKEN", new MyBot("BotName"));
+    ```
+
+    Replace `YOUR_BOT_TOKEN` with the token provided by [@BotFather](https://t.me/BotFather).
+  </Step>
+  <Step title="Register and start">
+    Create a `LongPollingBotApplication`, register the adapter, and start:
+
+    ```java
+    LongPollingBotApplication application = new LongPollingBotApplication();
+    application.registerBot(adapter);
+    ```
+  </Step>
+</Steps>
+
+## Multi-threaded polling
+
+By default, updates are processed on a single thread. If your bot handles slow or blocking operations, use `MultithreadingLongPollingBotAdapter` to process updates concurrently:
+
+```java
+LongPollingBotApplication application = new LongPollingBotApplication();
+application.registerBot(
+    new MultithreadingLongPollingBotAdapter("YOUR_BOT_TOKEN", new MyBot("BotName"))
+);
+```
+
+Each incoming update is dispatched to a thread pool, so one slow handler won't block others.
+
+## Running multiple bots
+
+A single `LongPollingBotApplication` can manage multiple bots. Call `registerBot` once for each adapter:
+
+```java
+LongPollingBotApplication application = new LongPollingBotApplication();
+application.registerBot(new LongPollingBotAdapter("TOKEN_1", new BotOne("Bot1")));
+application.registerBot(new LongPollingBotAdapter("TOKEN_2", new BotTwo("Bot2")));
+```
+
+Each bot polls independently using its own token.
+
+## Error handling
+
+Wrap `registerBot` in a try-catch to handle registration failures, such as an invalid token or network issues at startup:
+
+```java
+LongPollingBotApplication application = new LongPollingBotApplication();
+try {
+    application.registerBot(new LongPollingBotAdapter("YOUR_BOT_TOKEN", new MyBot("BotName")));
+} catch (TelegramApiException e) {
+    // Log the error and exit, or retry
+    System.err.println("Failed to register bot: " + e.getMessage());
+}
+```
+
+<Note>
+  `TelegramApiException` is thrown by the underlying TelegramBots library. Check the exception message for details such as `Unauthorized` (invalid token) or connection errors.
+</Note>

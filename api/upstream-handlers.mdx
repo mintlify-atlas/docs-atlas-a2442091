@@ -1,0 +1,212 @@
+---
+title: "Upstream handler classes and interfaces"
+description: "Reference for all Strongram upstream handler classes: BaseUpstreamHandler, FilteredUpstreamHandler, CommandUpstreamHandler, DialogUpstreamHandler, and more."
+---
+
+Upstream handlers form an ordered chain that processes every incoming Telegram `Update`. Each handler can consume the update, pass it on via `processNext`, or do both.
+
+## Handler overview
+
+| Class | Type | Purpose |
+|---|---|---|
+| `UpstreamHandler` | Interface | Base contract for all upstream handlers |
+| `BaseUpstreamHandler` | Abstract class | Simple override-based handler |
+| `FilteredUpstreamHandler` | Abstract class | Runs only when a `Filter` matches |
+| `CommandUpstreamHandler` | Abstract class | Routes `/commands` to individual handlers |
+| `TextCommandUpstreamHandler` | Abstract class | Routes plain-text triggers to individual handlers |
+| `InteractiveKeyboardUpstreamHandler` | Abstract class | Handles interactive keyboard callbacks |
+| `DialogUpstreamHandler` | Concrete class | Manages multi-step dialog state machines |
+| `ExceptionReportUpstreamHandler` | Concrete class | Catches and reports exceptions from downstream handlers |
+| `CannotProcessUpstreamHandler` | Concrete class | Terminal handler — replies when nothing processed the update |
+
+---
+
+## `UpstreamHandler` interface
+
+Every upstream handler implements this interface.
+
+<ResponseField name="process(RequestContext ctx)" type="void">
+  Entry point called by the chain for each update. Call `processNext(ctx)` to forward to the next handler.
+</ResponseField>
+
+<ResponseField name="processNext(RequestContext ctx)" type="void">
+  Forwards the context to the next handler in the chain. Implemented by the framework; do not override.
+</ResponseField>
+
+---
+
+## `BaseUpstreamHandler`
+
+The simplest base class. Override `process` and call `processNext` when you want the chain to continue.
+
+```java
+public class LoggingHandler extends BaseUpstreamHandler {
+    @Override
+    public void process(RequestContext ctx) {
+        System.out.println("Update: " + ctx.getUpdate());
+        processNext(ctx);
+    }
+}
+```
+
+---
+
+## `FilteredUpstreamHandler`
+
+Runs only when the provided `Filter` matches the current update. Override `getFilter()` to declare when this handler is active, and `processFiltered(ctx)` to handle the matched update.
+
+```java
+public class PhotoHandler extends FilteredUpstreamHandler {
+    @Override
+    protected Filter getFilter() {
+        return Filters.hasPhoto();
+    }
+
+    @Override
+    protected void processFiltered(RequestContext ctx) {
+        ctx.getResponder().send("Nice photo!");
+    }
+}
+```
+
+<Note>
+  `processFiltered` is only called when `getFilter()` returns `true`. The chain continues automatically after `processFiltered` returns unless you explicitly consume the update.
+</Note>
+
+---
+
+## `CommandUpstreamHandler`
+
+Routes `/command` messages to per-command lambdas. Override `getCommands()` to return a map of command strings to `EachCommandHandler` instances.
+
+`EachCommandHandler` signature: `(RequestContext ctx, String[] args) -> void`
+
+The `args` array contains the space-separated arguments that follow the command.
+
+```java
+public class MyCommands extends CommandUpstreamHandler {
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of(
+            "start", (ctx, args) -> ctx.getResponder().send("Hello!"),
+            "help",  (ctx, args) -> ctx.getResponder().send("Help text here.")
+        );
+    }
+}
+```
+
+---
+
+## `TextCommandUpstreamHandler`
+
+Identical to `CommandUpstreamHandler` but matches plain-text messages rather than `/`-prefixed commands. Useful for menu keyboards that send text buttons.
+
+```java
+public class MenuHandler extends TextCommandUpstreamHandler {
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of(
+            "Settings", (ctx, args) -> ctx.getResponder().send("Settings menu."),
+            "About",    (ctx, args) -> ctx.getResponder().send("Version 1.0")
+        );
+    }
+}
+```
+
+---
+
+## `InteractiveKeyboardUpstreamHandler`
+
+Handles callback queries originating from an interactive inline keyboard. Override `getKeyboardHolder()` to return the `InteractiveKeyboardHolder` that owns the keyboard.
+
+```java
+public class MyKeyboardHandler extends InteractiveKeyboardUpstreamHandler {
+    @Override
+    protected InteractiveKeyboardHolder getKeyboardHolder() {
+        return myInteractiveKeyboard;
+    }
+}
+```
+
+---
+
+## `DialogUpstreamHandler`
+
+Manages active `DialogImpl` instances per user. Add it to the upstream chain before any command handlers that start dialogs.
+
+### Constructors
+
+<ParamField path="(no args)" type="">
+  Uses the default in-memory dialog repository.
+</ParamField>
+
+<ParamField path="customRepository" type="DialogRepository">
+  Uses a custom repository (e.g., persistent storage).
+</ParamField>
+
+```java
+// Default in-memory repository
+chain.add(new DialogUpstreamHandler());
+
+// Custom repository
+chain.add(new DialogUpstreamHandler(myPersistentRepository));
+```
+
+### Starting a dialog
+
+Place a `DialogImpl` in the request-scoped storage under `DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME` to begin a new dialog for the current user:
+
+```java
+ctx.getRequestStorage().add(
+    DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME,
+    myDialog
+);
+```
+
+---
+
+## `ExceptionReportUpstreamHandler`
+
+Wraps the rest of the chain in a try/catch. Exceptions are formatted and optionally reported.
+
+### Constructors
+
+<ParamField path="(no args)" type="">
+  Uses a default exception formatter that sends the exception class name and message back to the user.
+</ParamField>
+
+<ParamField path="formatter" type="ExceptionFormatter">
+  Custom formatter. Implement `ExceptionFormatter` to control what the user sees on error.
+</ParamField>
+
+```java
+chain.add(new ExceptionReportUpstreamHandler());
+
+// or with a custom formatter
+chain.add(new ExceptionReportUpstreamHandler(ex ->
+    SendMessage.builder()
+        .chatId(...)
+        .text("Something went wrong.")
+        .build()
+));
+```
+
+<Warning>
+  Add `ExceptionReportUpstreamHandler` as the **first** handler in the chain so it wraps all subsequent handlers.
+</Warning>
+
+---
+
+## `CannotProcessUpstreamHandler`
+
+A terminal handler that sends a default "I don't understand" reply when no earlier handler consumed the update. Add it as the **last** handler in the chain.
+
+### Constructor
+
+<ParamField path="(no args)" type="">
+  No configuration required.
+</ParamField>
+
+```java
+chain.add(new CannotProcessUpstreamHandler());
+```

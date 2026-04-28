@@ -1,0 +1,147 @@
+---
+title: "Handle commands and text triggers in Strongram"
+description: "Route Telegram slash commands and plain-text triggers to Java methods using CommandUpstreamHandler and TextCommandUpstreamHandler."
+---
+
+Strongram routes incoming messages to handler methods through a chain of `UpstreamHandler` instances. Two built-in handlers cover the most common routing patterns: slash commands (e.g. `/start`) and plain-text triggers (e.g. menu button labels).
+
+## `CommandUpstreamHandler`
+
+Extend `CommandUpstreamHandler` and implement `getCommands()` to return a map of command names to handler lambdas.
+
+```java
+import ru.daniil4jk.strongram.core.command.EachCommandHandler;
+import ru.daniil4jk.strongram.core.context.request.RequestContext;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.CommandUpstreamHandler;
+
+import java.util.Map;
+
+public class MyCommandHandler extends CommandUpstreamHandler {
+
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of(
+            "start", this::handleStart,
+            "help",  this::handleHelp
+        );
+    }
+
+    private void handleStart(RequestContext ctx, String[] args) {
+        ctx.getResponder().send("Welcome! Use /help to see available commands.");
+    }
+
+    private void handleHelp(RequestContext ctx, String[] args) {
+        ctx.getResponder().send("Available commands:\n/start — greet the bot\n/help — show this message");
+    }
+}
+```
+
+Map keys are command names **without** the leading `/`. The handler resolves both `/start` and `/start@YourBotName` automatically, so the same map works in private chats, groups, and inline mode.
+
+### `EachCommandHandler` functional interface
+
+`EachCommandHandler` is a `@FunctionalInterface` with the signature:
+
+```java
+void accept(RequestContext ctx, String[] args)
+```
+
+- `ctx` — the full request context, giving access to the responder, storage, UUID, and the raw Telegram update.
+- `args` — zero-indexed array of space-separated tokens that follow the command name.
+
+For example, `/order pizza 2` produces `args = ["pizza", "2"]`.
+
+### Accessing arguments
+
+```java
+private void handleOrder(RequestContext ctx, String[] args) {
+    if (args.length < 2) {
+        ctx.getResponder().send("Usage: /order <item> <quantity>");
+        return;
+    }
+    String item = args[0];
+    int quantity = Integer.parseInt(args[1]);
+    ctx.getResponder().send("Ordered " + quantity + "x " + item);
+}
+```
+
+### Unrecognized commands
+
+When a command message arrives but none of the keys match, `CommandUpstreamHandler` calls `processNext(ctx)`, passing control to the next handler in the chain. Place a `CannotProcessUpstreamHandler` at the end of the chain to reply with a default message. See [error handling](/guides/error-handling) for details.
+
+## `TextCommandUpstreamHandler`
+
+`TextCommandUpstreamHandler` works identically to `CommandUpstreamHandler` but matches against plain-text messages rather than slash commands. This is useful for routing reply-keyboard button labels or shorthand phrases.
+
+```java
+import ru.daniil4jk.strongram.core.command.EachCommandHandler;
+import ru.daniil4jk.strongram.core.context.request.RequestContext;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.TextCommandUpstreamHandler;
+
+import java.util.Map;
+
+public class MenuTextHandler extends TextCommandUpstreamHandler {
+
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of(
+            "My orders", this::showOrders,
+            "Support",   this::openSupport
+        );
+    }
+
+    private void showOrders(RequestContext ctx, String[] args) {
+        ctx.getResponder().send("Here are your recent orders...");
+    }
+
+    private void openSupport(RequestContext ctx, String[] args) {
+        ctx.getResponder().send("Contact us at support@example.com");
+    }
+}
+```
+
+<Note>
+  Text matching is case-insensitive. `"My Orders"`, `"my orders"`, and `"MY ORDERS"` all match the key `"My orders"`.
+</Note>
+
+## Registering handlers in the chain
+
+Both handlers are registered through `ConfigurableChainFactory` inside your bot's `getChain()` method:
+
+```java
+import ru.daniil4jk.strongram.core.bot.ChainedBot;
+import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.ChainFactory;
+import ru.daniil4jk.strongram.core.chainOrderConfigurator.factory.configurable.ConfigurableChainFactory;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.CannotProcessUpstreamHandler;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.ExceptionReportUpstreamHandler;
+import ru.daniil4jk.strongram.core.report.exception.ExceptionFormatters;
+
+public class MyBot extends ChainedBot {
+
+    public MyBot(String botToken) {
+        super(botToken);
+    }
+
+    @Override
+    protected ChainFactory getChain() {
+        return new ConfigurableChainFactory(chain -> {
+            chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.info()));
+            chain.add(new MyCommandHandler());
+            chain.add(new MenuTextHandler());
+            chain.add(new CannotProcessUpstreamHandler());
+        });
+    }
+}
+```
+
+Handlers are evaluated in registration order. Place `ExceptionReportUpstreamHandler` first so it wraps the rest of the chain in a try-catch, and `CannotProcessUpstreamHandler` last as a fallback.
+
+## Where commands work
+
+`CommandUpstreamHandler` handles:
+
+- Private chats — `/start`
+- Groups and supergroups — `/start` and `/start@YourBotName`
+- Inline mode — commands forwarded through the inline update pipeline
+
+`TextCommandUpstreamHandler` handles any update that contains a text message whose first token matches one of the registered keys, regardless of chat type.

@@ -1,0 +1,141 @@
+---
+title: "SmartResponder — high-level message sending API"
+description: "SmartResponder provides one-line methods for sending text, media, and any BotApiMethod. Available via ctx.getResponder() in every upstream handler."
+---
+
+`SmartResponder` extends `Responder` and is the primary API for sending messages from within handler code. Obtain an instance via `ctx.getResponder()`.
+
+```java
+SmartResponder responder = ctx.getResponder();
+responder.send("Hello!");
+```
+
+---
+
+## Text — fire and forget
+
+<ResponseField name="send(String text)" type="void">
+  Sends a text message to the chat from which the current update originated.
+</ResponseField>
+
+<ResponseField name="send(Long chatId, String text)" type="void">
+  Sends a text message to the specified `chatId`.
+</ResponseField>
+
+```java
+responder.send("Hello!");
+responder.send(123456789L, "Hello from a different chat!");
+```
+
+---
+
+## Text — async with result
+
+<ResponseField name="sendForObject(String text)" type="CompletableFuture<List<Message>>">
+  Sends a text message and returns a future with the list of sent `Message` objects. Returns a list because long messages are automatically split into multiple parts.
+</ResponseField>
+
+<ResponseField name="sendForObject(Long chatId, String text)" type="CompletableFuture<List<Message>>">
+  Same as above, targeting a specific `chatId`.
+</ResponseField>
+
+```java
+responder.sendForObject("A very long message...")
+    .thenAccept(messages -> System.out.println("Sent " + messages.size() + " part(s)"));
+```
+
+<Note>
+  Telegram has a 4096-character message limit. `SmartResponder` automatically splits messages that exceed this limit into multiple sequential messages.
+</Note>
+
+---
+
+## Media — fire and forget
+
+<ResponseField name="send(String caption, File file, MediaType type)" type="void">
+  Sends a media file with an optional caption to the originating chat.
+</ResponseField>
+
+<ResponseField name="send(Long chatId, String caption, File file, MediaType type)" type="void">
+  Sends a media file to the specified `chatId`.
+</ResponseField>
+
+```java
+responder.send("Here is your report", reportFile, MediaType.Document);
+responder.send("A photo!", photoFile, MediaType.Photo);
+```
+
+---
+
+## Media — async with result
+
+<ResponseField name="sendForObject(String caption, File file, MediaType type)" type="CompletableFuture<List<Message>>">
+  Sends a media file and returns a future with the list of sent messages.
+</ResponseField>
+
+<ResponseField name="sendForObject(Long chatId, String caption, File file, MediaType type)" type="CompletableFuture<List<Message>>">
+  Same as above, targeting a specific `chatId`.
+</ResponseField>
+
+---
+
+## `MediaType` enum
+
+| Value | Sends as |
+|---|---|
+| `MediaType.Photo` | `sendPhoto` |
+| `MediaType.Video` | `sendVideo` |
+| `MediaType.Audio` | `sendAudio` |
+| `MediaType.Voice` | `sendVoice` |
+| `MediaType.Document` | `sendDocument` |
+
+---
+
+## Low-level methods (from `Responder`)
+
+Use these when you need full control over the Telegram Bot API method, including custom keyboards, parse modes, or other options.
+
+### Generic `BotApiMethod`
+
+<ResponseField name="send(Method response)" type="void">
+  Executes any `BotApiMethod` subclass (e.g., `SendMessage`, `AnswerCallbackQuery`, `EditMessageText`).
+</ResponseField>
+
+<ResponseField name="sendForObject(Method response)" type="CompletableFuture<T>">
+  Executes any `BotApiMethod` and returns a future with the Telegram API response object.
+</ResponseField>
+
+```java
+SendMessage msg = SendMessage.builder()
+    .chatId(ctx.getUUID().getReplyChatId())
+    .text("*Bold text*")
+    .parseMode("Markdown")
+    .build();
+
+responder.send(msg);
+```
+
+### Media-specific low-level methods
+
+Convenience overloads are available for the most common media types:
+
+```java
+responder.send(SendDocument.builder()...build());
+responder.send(SendPhoto.builder()...build());
+responder.send(SendVideo.builder()...build());
+```
+
+---
+
+## Answering callback queries
+
+When handling an inline keyboard button press, answer the callback query to dismiss the loading spinner:
+
+```java
+responder.send(
+    AnswerCallbackQuery.builder()
+        .callbackQueryId(ctx.getRequest(As.callbackQuery()).getId())
+        .text("Done!")
+        .build()
+);
+```

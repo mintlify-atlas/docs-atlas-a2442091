@@ -1,0 +1,257 @@
+---
+title: "Build multi-step dialogs with state machines"
+description: "Create multi-step conversational flows in Strongram using DialogImpl, BuildableDialogPart, and ExtendableDialogPart with enum-based state machines."
+---
+
+Dialogs let you collect information from a user across multiple messages. Each dialog is a state machine whose states correspond to conversation steps. Strongram tracks active dialogs per user UUID and routes incoming messages to the correct step automatically.
+
+## How dialogs work
+
+`DialogUpstreamHandler` maintains a repository of active dialogs keyed by `TelegramUUID` (the combination of user ID and chat ID). On each incoming message it:
+
+1. Checks whether the user has an active dialog that can accept the current message.
+2. If yes, passes the message to that dialog step and skips the rest of the chain.
+3. If no active dialog matches, it continues to the next handler, then checks whether the handler registered a new dialog in request-scope storage and activates it.
+
+To start a dialog, put a `DialogImpl` instance into the request-scope storage with the key `DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME`.
+
+## Define your states
+
+Use an `enum` to name each conversation step:
+
+```java
+public enum OrderState {
+    ASK_PIZZA,
+    ASK_ADDRESS
+}
+```
+
+## Build a dialog with `DialogImpl`
+
+`DialogImpl` takes an initial state and a `DialogPart` for each state:
+
+```java
+import ru.daniil4jk.strongram.core.dialog.DialogImpl;
+import ru.daniil4jk.strongram.core.dialog.part.BuildableDialogPart;
+import ru.daniil4jk.strongram.core.filter.Filters;
+import ru.daniil4jk.strongram.core.unboxer.As;
+import ru.daniil4jk.strongram.core.upstream.preinstalled.DialogUpstreamHandler;
+
+DialogImpl<OrderState> dialog = DialogImpl.<OrderState>builder()
+    .initState(OrderState.ASK_PIZZA)
+    .part(OrderState.ASK_PIZZA, BuildableDialogPart.<OrderState>builder()
+        .filter(Filters.hasMessageText())
+        .firstNotification((ctx, storage) ->
+            ctx.getResponder().send("What pizza would you like?"))
+        .repeatNotification((ctx, storage) ->
+            ctx.getResponder().send("Still waiting — what pizza would you like?"))
+        .handler((ctx, dCtx) -> {
+            String pizza = ctx.getRequest(As.messageText());
+            dCtx.getDialogScopeStorage().set("pizza", pizza);
+            dCtx.setState(OrderState.ASK_ADDRESS);
+        })
+        .build())
+    .part(OrderState.ASK_ADDRESS, BuildableDialogPart.<OrderState>builder()
+        .filter(Filters.hasMessageText())
+        .firstNotification("What is your delivery address?")
+        .repeatNotification("Still waiting — please enter your address.")
+        .handler((ctx, dCtx) -> {
+            String address = ctx.getRequest(As.messageText());
+            String pizza = dCtx.getDialogScopeStorage().get("pizza");
+            ctx.getResponder().send("Order confirmed!\nPizza: " + pizza + "\nAddress: " + address);
+            dCtx.stop();
+        })
+        .build())
+    .build();
+
+// Register the dialog so DialogUpstreamHandler picks it up after this handler returns
+ctx.getRequestScopeStorage().add(DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME, dialog);
+```
+
+### `DialogImpl` builder options
+
+| Method | Description |
+|---|---|
+| `initState(ENUM)` | Required. The state the dialog starts in. |
+| `part(ENUM, DialogPart)` | Register a part for a state. |
+| `parts(Map)` | Register all parts at once. |
+| `storage(Storage)` | Provide a custom `Storage` for dialog-scoped data. |
+| `build()` | Construct the `DialogImpl`. |
+
+## `BuildableDialogPart`
+
+`BuildableDialogPart` is the builder-style way to define a dialog step inline.
+
+| Builder method | Type | Description |
+|---|---|---|
+| `filter(Filter)` | `Filter` | Determines whether this step can accept the current message. Defaults to accepting everything. |
+| `firstNotification(BiConsumer)` | `(RequestContext, Storage) -> void` | Sent when the dialog first enters this state. |
+| `firstNotification(String)` | `String` | Shorthand: sends a fixed text message. |
+| `repeatNotification(BiConsumer)` | `(RequestContext, Storage) -> void` | Sent on subsequent messages that don't match the filter. |
+| `repeatNotification(String)` | `String` | Shorthand: sends a fixed text message. |
+| `handler(TryProcess)` | `(RequestContext, DialogContext) -> void throws Exception` | Processes the accepted message. Advance state or stop here. |
+| `onException(Consumer<Exception>)` | `Consumer<Exception>` | Custom exception handler for this step. |
+
+## `ExtendableDialogPart`
+
+For steps with complex logic, subclass `ExtendableDialogPart` instead of using the builder. This keeps the step code in a dedicated class.
+
+<Tabs>
+  <Tab title="BuildableDialogPart">
+    ```java
+    .part(OrderState.ASK_PIZZA, BuildableDialogPart.<OrderState>builder()
+        .filter(Filters.hasMessageText())
+        .firstNotification((ctx, storage) ->
+            ctx.getResponder().send("What pizza would you like?"))
+        .repeatNotification((ctx, storage) ->
+            ctx.getResponder().send("Still waiting — what pizza would you like?"))
+        .handler((ctx, dCtx) -> {
+            String pizza = ctx.getRequest(As.messageText());
+            dCtx.getDialogScopeStorage().set("pizza", pizza);
+            dCtx.setState(OrderState.ASK_ADDRESS);
+        })
+        .build())
+    ```
+  </Tab>
+  <Tab title="ExtendableDialogPart">
+    ```java
+    import ru.daniil4jk.strongram.core.context.dialog.DialogContext;
+    import ru.daniil4jk.strongram.core.context.request.RequestContext;
+    import ru.daniil4jk.strongram.core.context.storage.Storage;
+    import ru.daniil4jk.strongram.core.dialog.part.ExtendableDialogPart;
+    import ru.daniil4jk.strongram.core.filter.Filter;
+    import ru.daniil4jk.strongram.core.filter.Filters;
+    import ru.daniil4jk.strongram.core.unboxer.As;
+
+    public class AskPizzaPart extends ExtendableDialogPart<OrderState> {
+
+        @Override
+        protected Filter getFilter() {
+            return Filters.hasMessageText();
+        }
+
+        @Override
+        protected void firstNotification(RequestContext ctx, Storage storage) {
+            ctx.getResponder().send("What pizza would you like?");
+        }
+
+        @Override
+        protected void repeatNotification(RequestContext ctx, Storage storage) {
+            ctx.getResponder().send("Still waiting — what pizza would you like?");
+        }
+
+        @Override
+        protected void accept(RequestContext ctx, DialogContext<OrderState> dCtx) {
+            String pizza = ctx.getRequest(As.messageText());
+            dCtx.getDialogScopeStorage().set("pizza", pizza);
+            dCtx.setState(OrderState.ASK_ADDRESS);
+        }
+    }
+    ```
+
+    Then reference the class in the builder:
+
+    ```java
+    .part(OrderState.ASK_PIZZA, new AskPizzaPart())
+    ```
+  </Tab>
+</Tabs>
+
+Use `ExtendableDialogPart` when a step needs injected services, complex branching, or enough logic that an inline lambda would be hard to read.
+
+## `DialogContext` API
+
+The `DialogContext<ENUM>` parameter in `handler` / `accept` provides:
+
+| Method | Description |
+|---|---|
+| `setState(ENUM)` | Advance to the next state. |
+| `getState()` | Return the current state. |
+| `stop()` | End the dialog and remove it from the active registry. |
+| `isStopped()` | Check whether the dialog has ended. |
+| `getDialogScopeStorage()` | `Storage` that lives for the entire dialog — use it to pass data between steps. |
+
+## Dialog-scoped storage
+
+`Storage` is a simple key-value store. Use `set` to write and `get` to read:
+
+```java
+// In step 1
+dCtx.getDialogScopeStorage().set("pizza", pizza);
+
+// In step 2
+String pizza = dCtx.getDialogScopeStorage().get("pizza");
+```
+
+Values are scoped to the dialog instance, so separate concurrent dialogs for different users cannot interfere with each other.
+
+## Starting a dialog from a command handler
+
+Register `DialogUpstreamHandler` **after** your command handlers in the chain. When a command handler creates a `DialogImpl` and adds it to request-scope storage, `DialogUpstreamHandler` sees it on the same request and immediately sends the first notification to the user.
+
+```java
+// Bot chain setup
+chain.add(new OrderCommandHandler());   // creates and registers the dialog
+chain.add(new DialogUpstreamHandler()); // processes and stores active dialogs
+```
+
+```java
+// Inside OrderCommandHandler
+private void startOrder(RequestContext ctx, String[] args) {
+    DialogImpl<OrderState> dialog = DialogImpl.<OrderState>builder()
+        .initState(OrderState.ASK_PIZZA)
+        // ... parts ...
+        .build();
+
+    ctx.getRequestScopeStorage().add(
+        DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME,
+        dialog
+    );
+}
+```
+
+## Full pizza order example
+
+The following example collects a pizza name and delivery address over two steps, then confirms the order.
+
+```java
+public class PizzaOrderHandler extends TextCommandUpstreamHandler {
+
+    @Override
+    protected Map<String, EachCommandHandler> getCommands() {
+        return Map.of("order", this::startOrder);
+    }
+
+    private void startOrder(RequestContext ctx, String[] args) {
+        DialogImpl<PizzaState> dialog = DialogImpl.<PizzaState>builder()
+            .initState(PizzaState.ASK_NAME)
+            .part(PizzaState.ASK_NAME, BuildableDialogPart.<PizzaState>builder()
+                .filter(Filters.hasMessageText())
+                .firstNotification("Enter the pizza name:")
+                .repeatNotification("Still waiting — enter the pizza name:")
+                .handler((context, dCtx) -> {
+                    dCtx.getDialogScopeStorage().set("pizza", context.getRequest(As.messageText()));
+                    dCtx.setState(PizzaState.ASK_ADDRESS);
+                })
+                .build())
+            .part(PizzaState.ASK_ADDRESS, BuildableDialogPart.<PizzaState>builder()
+                .filter(Filters.hasMessageText())
+                .firstNotification("Enter your delivery address:")
+                .repeatNotification("Still waiting — enter your delivery address:")
+                .handler((context, dCtx) -> {
+                    String pizza   = dCtx.getDialogScopeStorage().get("pizza");
+                    String address = context.getRequest(As.messageText());
+                    context.getResponder().send(
+                        "Order confirmed!\nPizza: " + pizza + "\nAddress: " + address
+                    );
+                    dCtx.stop();
+                })
+                .build())
+            .build();
+
+        ctx.getRequestScopeStorage().add(DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME, dialog);
+    }
+
+    public enum PizzaState { ASK_NAME, ASK_ADDRESS }
+}
+```

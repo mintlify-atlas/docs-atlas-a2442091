@@ -1,0 +1,104 @@
+---
+title: "Downstream handlers for post-processing responses"
+description: "Use downstream handlers in Strongram to post-process every outgoing message, such as automatically injecting a default reply keyboard into all responses."
+---
+
+Downstream handlers run after your upstream handler chain completes and before the message is sent to Telegram. They let you apply transformations to every outgoing response — such as appending a persistent reply keyboard — without modifying each handler individually.
+
+## `DownstreamHandler` interface
+
+`DownstreamHandler` is the base interface. It receives the outgoing message object and can modify it before it is dispatched.
+
+## `BaseDownstreamHandler`
+
+`BaseDownstreamHandler` is an abstract class that handles the boilerplate of the `DownstreamHandler` interface. Extend it when you want to write a custom post-processor.
+
+```java
+public class MyDownstreamHandler extends BaseDownstreamHandler {
+    @Override
+    protected void process(SendMessage message, Optional<RequestContext> ctx) {
+        // modify message before it is sent
+    }
+}
+```
+
+## `AddDefaultKeyboardDownstreamHandler`
+
+`AddDefaultKeyboardDownstreamHandler` is a pre-built downstream handler that injects a keyboard into every outgoing message that does not already have one attached.
+
+### Static keyboard
+
+Pass a `ReplyKeyboardMarkup` directly to attach the same keyboard to every response:
+
+```java
+import ru.daniil4jk.strongram.core.downstream.preinstalled.AddDefaultKeyboardDownstreamHandler;
+
+AddDefaultKeyboardDownstreamHandler handler =
+    new AddDefaultKeyboardDownstreamHandler(myReplyKeyboardMarkup);
+```
+
+### Dynamic keyboard via lambda
+
+Pass a function that receives an `Optional<RequestContext>` to compute the keyboard per request. This allows you to vary the keyboard based on user identity, chat state, or any other runtime value:
+
+```java
+AddDefaultKeyboardDownstreamHandler handler = new AddDefaultKeyboardDownstreamHandler(
+    optionalCtx -> optionalCtx
+        .map(ctx -> getKeyboardForUser(ctx.getUUID().getUserId()))
+        .orElse(defaultKeyboard)
+);
+```
+
+The `Optional` is empty when the downstream handler is invoked outside of a request context — for example, when a message is sent proactively via `SmartResponderFactory`.
+
+## Registering downstream handlers
+
+Override `configureDownstream` in your `ChainedBot` subclass and use the provided `OrderConfigurator<DownstreamHandler>` to register handlers:
+
+```java
+@Override
+protected void configureDownstream(OrderConfigurator<DownstreamHandler> downstream) {
+    downstream.add(new AddDefaultKeyboardDownstreamHandler(myKeyboard));
+}
+```
+
+`OrderConfigurator` supports the same `add`, `addBefore`, and `addAfter` methods as the upstream configurator. See [Handler chain](/concepts/handler-chain) for details.
+
+## Example: persistent menu keyboard on every response
+
+The following bot attaches a three-button reply keyboard to every outgoing message. Users always see the menu, regardless of which upstream handler produced the response.
+
+```java
+public class MenuBot extends ChainedBot {
+
+    private static final ReplyKeyboardMarkup MENU_KEYBOARD = buildKeyboard();
+
+    @Override
+    protected void configureUpstream(OrderConfigurator<UpstreamHandler> chain) {
+        chain.add(new ExceptionReportUpstreamHandler(ExceptionFormatters.info()));
+        chain.add(new MyCommandHandler());
+        chain.add(new CannotProcessUpstreamHandler());
+    }
+
+    @Override
+    protected void configureDownstream(OrderConfigurator<DownstreamHandler> downstream) {
+        downstream.add(new AddDefaultKeyboardDownstreamHandler(MENU_KEYBOARD));
+    }
+
+    private static ReplyKeyboardMarkup buildKeyboard() {
+        KeyboardRow row = new KeyboardRow(
+            new KeyboardButton("Help"),
+            new KeyboardButton("My account"),
+            new KeyboardButton("Settings")
+        );
+        return ReplyKeyboardMarkup.builder()
+            .keyboard(List.of(row))
+            .resizeKeyboard(true)
+            .build();
+    }
+}
+```
+
+<Tip>
+  `AddDefaultKeyboardDownstreamHandler` only injects the keyboard when the outgoing message has no keyboard set. Messages that already carry a custom keyboard — such as those with inline buttons — are left unchanged.
+</Tip>

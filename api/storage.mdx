@@ -1,0 +1,138 @@
+---
+title: "Storage — scoped key-value data bag"
+description: "Storage is a typed key-value container used in two scopes: request scope (one update) and dialog scope (full dialog lifetime). Supports generic get, set, and collection access."
+---
+
+`Storage` is a generic key-value store that carries data through the handler chain. It is used in two distinct scopes:
+
+- **Request scope** — lives for a single update. Access via `ctx.getRequestStorage()`.
+- **Dialog scope** — lives for the entire dialog conversation. Access via `dCtx.getDialogScopeStorage()`.
+
+---
+
+## Interface methods
+
+### `add(String key, T object)`
+
+<ParamField path="key" type="String" required>
+  The key to store the object under.
+</ParamField>
+<ParamField path="object" type="T" required>
+  The value to store.
+</ParamField>
+
+Stores `object` under `key`. **Throws** if `key` already exists — use `set` if you need to overwrite.
+
+```java
+storage.add("userId", 12345L);
+```
+
+---
+
+### `set(String key, T object)`
+
+<ParamField path="key" type="String" required>
+  The key to store the object under.
+</ParamField>
+<ParamField path="object" type="T" required>
+  The value to store. Replaces any existing value for `key`.
+</ParamField>
+
+Stores or overwrites `object` under `key`.
+
+```java
+storage.set("step", "confirm");
+```
+
+---
+
+### `get(String key)`
+
+<ParamField path="key" type="String" required>
+  The key to retrieve.
+</ParamField>
+
+<ResponseField name="return" type="T">
+  The stored value cast to `T`, or `null` if not present.
+</ResponseField>
+
+```java
+String step = storage.get("step");
+```
+
+---
+
+### `get(Class<T> type, String key)`
+
+<ParamField path="type" type="Class<T>" required>
+  The expected type for explicit casting.
+</ParamField>
+<ParamField path="key" type="String" required>
+  The key to retrieve.
+</ParamField>
+
+<ResponseField name="return" type="T">
+  The stored value cast to `type`.
+</ResponseField>
+
+```java
+Long userId = storage.get(Long.class, "userId");
+```
+
+---
+
+### `getCollection(String key)`
+
+<ResponseField name="return" type="Collection<T>">
+  Returns the value at `key` as a `Collection<T>`.
+</ResponseField>
+
+```java
+Collection<String> tags = storage.getCollection("tags");
+```
+
+---
+
+### `getCollection(Class<T> type, String key)`
+
+<ResponseField name="return" type="Collection<T>">
+  Returns the value at `key` as a `Collection<T>`, with explicit type.
+</ResponseField>
+
+```java
+Collection<Long> ids = storage.getCollection(Long.class, "allowedIds");
+```
+
+---
+
+### `getAll()`
+
+<ResponseField name="return" type="Map<String, Object>">
+  Returns a map of all key-value pairs in this storage instance.
+</ResponseField>
+
+```java
+Map<String, Object> all = storage.getAll();
+```
+
+---
+
+## Request scope vs dialog scope
+
+| | Request scope | Dialog scope |
+|---|---|---|
+| Access | `ctx.getRequestStorage()` | `dCtx.getDialogScopeStorage()` |
+| Lifetime | Single update | Entire dialog |
+| Typical use | Passing data between handlers in one update | Accumulating user input across dialog steps |
+
+```java
+// Request scope: share data between upstream handlers
+ctx.getRequestStorage().add("parsedOrder", order);
+
+// Dialog scope: accumulate user input across steps
+dCtx.getDialogScopeStorage().set("name", ctx.getRequest(As.messageText()));
+```
+
+<Note>
+  `DialogUpstreamHandler` uses the request-scoped storage key `DialogUpstreamHandler.DIALOGS_CONTEXT_FIELD_NAME` to receive a new `DialogImpl` and begin tracking it. Do not use this key for your own data.
+</Note>

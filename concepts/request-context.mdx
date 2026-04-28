@@ -1,0 +1,91 @@
+---
+title: "RequestContext: the per-update request object"
+description: "RequestContext carries every piece of information about an incoming Telegram update: the UUID, raw Update, typed extractors, scoped storage, and the responder."
+---
+
+Every `UpstreamHandler` receives a `RequestContext` as its sole argument. It is the single object through which a handler reads the incoming update, accesses shared state, and sends replies. A new `RequestContext` is created for each update and is discarded once the upstream chain finishes processing.
+
+## Methods at a glance
+
+| Method | Return type | Description |
+|---|---|---|
+| `getUUID()` | `TelegramUUID` | Stable identity for the current update (chat + user) |
+| `getRequest()` | `Update` | Raw TelegramBots `Update` object |
+| `getRequest(Unboxer<T>)` | `T` | Typed extraction from the update via an `As` factory method |
+| `getRequestScopeStorage()` | `Storage` | Key-value bag scoped to this single update cycle |
+| `getResponder()` | `SmartResponder` | Sends replies to the chat that originated this update |
+| `getBotResponderFactory()` | `SmartResponderFactory` | Creates responders targeting any chat ID (for push notifications) |
+| `getBotUsername()` | `String` | The authenticated username of the running bot |
+
+## `TelegramUUID`
+
+`TelegramUUID` is a Java `record` that uniquely identifies the sender of an update. It is the stable key used for dialogs and per-user storage.
+
+```java
+public record TelegramUUID(Chat chat, User user) {
+    public Long getReplyChatId(); // throws if both chat and user are null
+}
+```
+
+- `chat()` — the `Chat` object from the update, or `null` if the update has no chat.
+- `user()` — the `User` object from the update, or `null` if the update has no user.
+- `getReplyChatId()` — returns `chat.getId()` if available, otherwise `user.getId()`. Throws `IllegalStateException` if both are `null`. Use this as the target chat ID when sending a reply.
+
+## `getRequest()` and typed extraction
+
+`getRequest()` returns the raw `org.telegram.telegrambots.meta.api.objects.Update`. For convenience, the overload `getRequest(Unboxer<T>)` accepts an `Unboxer` — a typed extractor produced by the `As` factory — and returns the extracted value directly.
+
+```java
+// Raw update
+Update update = ctx.getRequest();
+
+// Typed extraction
+String text    = ctx.getRequest(As.messageText());
+Message msg    = ctx.getRequest(As.message());
+String data    = ctx.getRequest(As.callbackData());
+```
+
+See the [`As` unboxer reference](/api/as-unboxer) for all available extractors.
+
+## Request-scope storage
+
+`getRequestScopeStorage()` returns a `Storage` instance that lives only for the duration of the current update's processing cycle. Use it to pass computed values between handlers without coupling them directly.
+
+```java
+// In an early handler:
+ctx.getRequestScopeStorage().put("parsedUser", parsedUser);
+
+// In a later handler:
+MyUser user = ctx.getRequestScopeStorage().get("parsedUser", MyUser.class);
+```
+
+The storage is discarded after the upstream chain completes, so nothing in it persists across updates.
+
+## `SmartResponder`
+
+`getResponder()` returns a `SmartResponder` pre-configured to reply to the chat that sent the current update. It is the primary way to send messages from inside a handler.
+
+```java
+ctx.getResponder().send("Hello!");
+```
+
+## `SmartResponderFactory`
+
+`getBotResponderFactory()` returns a `SmartResponderFactory` that can create a `SmartResponder` for any chat ID. Use this for outbound notifications that are not direct replies — for example, notifying an admin chat when something happens.
+
+```java
+SmartResponder adminResponder = ctx.getBotResponderFactory().create(ADMIN_CHAT_ID);
+adminResponder.send("New user registered: " + uuid.getReplyChatId());
+```
+
+## Common usage pattern
+
+```java
+@Override
+protected void processFiltered(RequestContext ctx) {
+    TelegramUUID uuid = ctx.getUUID();
+    Long chatId = uuid.getReplyChatId();
+    String text = ctx.getRequest(As.messageText());
+    ctx.getResponder().send("You said: " + text);
+}
+```

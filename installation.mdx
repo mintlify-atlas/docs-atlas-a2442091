@@ -1,0 +1,83 @@
+---
+title: "Install Strongram in your Maven project"
+description: "Add Strongram's long-polling or webhook module to pom.xml. Requires Java 17 and Maven 3.6+. Current version: 0.5.0."
+---
+
+Strongram is distributed as two Maven artifacts — one for each transport mode. Add the appropriate dependency to your `pom.xml` and Maven pulls in `strongram-core` and all required libraries automatically.
+
+## Prerequisites
+
+- **Java 17 or later** — Strongram uses Java 17 language features.
+- **Maven 3.6 or later** — the project is distributed as Maven artifacts.
+
+## Choose a transport
+
+Strongram provides two transport modules. Pick one based on your deployment:
+
+| | Long polling | Webhook |
+|---|---|---|
+| **How it works** | Bot polls Telegram for updates | Telegram pushes updates to your server |
+| **Best for** | Development, simple deployments | Production servers with a public HTTPS endpoint |
+| **Requires** | Nothing extra | A publicly accessible HTTPS URL |
+
+<Tabs>
+  <Tab title="Long polling">
+    Add `strongram-longpolling` to your `pom.xml`:
+
+    ```xml
+    <dependency>
+        <groupId>ru.daniil4jk</groupId>
+        <artifactId>strongram-longpolling</artifactId>
+        <version>0.5.0</version>
+    </dependency>
+    ```
+
+    This gives you `LongPollingBotApplication` and `LongPollingBotAdapter` to start your bot. See the [Quickstart](/quickstart) for a complete example.
+  </Tab>
+  <Tab title="Webhook">
+    Add `strongram-webhook` to your `pom.xml`:
+
+    ```xml
+    <dependency>
+        <groupId>ru.daniil4jk</groupId>
+        <artifactId>strongram-webhook</artifactId>
+        <version>0.5.0</version>
+    </dependency>
+    ```
+
+    This gives you `WebhookBotApplication` and `WebhookBotAdapter`. See [Deployment: Webhook](/deployment/webhook) for setup instructions.
+  </Tab>
+</Tabs>
+
+<Note>
+Do not add `strongram-core` directly. Both transport modules declare it as a dependency and Maven resolves it transitively.
+</Note>
+
+## Transitive dependencies
+
+Both modules pull in the following libraries automatically — you do not need to declare them in your `pom.xml`:
+
+| Library | Version | Purpose |
+|---|---|---|
+| `strongram-core` | 0.5.0 | Core framework |
+| `telegrambots` (meta, client, transport) | 9.2.0 | Telegram Bot API client |
+| `lombok` | 1.18.38 | Compile-time code generation |
+| `log4j-api` | 2.25.0 | Logging API |
+
+If your project already declares any of these dependencies at a different version, Maven's nearest-definition rule applies. Pin versions explicitly in your `<dependencyManagement>` section if you need to override them.
+
+## Verify the installation
+
+After adding the dependency, run:
+
+```bash
+mvn dependency:resolve
+```
+
+You should see `ru.daniil4jk:strongram-longpolling:0.5.0` (or `strongram-webhook`) listed as resolved. If Maven cannot find the artifact, check that your repository configuration includes the source where Strongram is published.
+
+## Next steps
+
+- [Quickstart](/quickstart) — build your first bot end-to-end with long polling.
+- [Deployment: Long polling](/deployment/long-polling) — run a long-polling bot in production.
+- [Deployment: Webhook](/deployment/webhook) — configure a webhook endpoint and register it with Telegram.

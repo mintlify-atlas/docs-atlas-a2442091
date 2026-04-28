@@ -1,0 +1,57 @@
+---
+title: "Strongram: a modern Java Telegram bot framework"
+description: "Strongram is a Java framework for building Telegram bots with a chain-of-responsibility handler pipeline, dialogs, filters, keyboards, and a smart responder API."
+---
+
+Strongram is a modular Java framework built on top of [TelegramBots](https://github.com/rubenlagus/TelegramBots) 9.x. It gives you a composable handler pipeline, declarative filters, multi-step dialog flows, interactive keyboards, and a one-line messaging API — without dealing with raw `Update` objects or manual dispatch logic.
+
+## Key capabilities
+
+- **Handler chain** — incoming updates flow through an ordered list of `UpstreamHandler` instances following the chain-of-responsibility pattern. You control the order: exception reporters first, domain handlers in the middle, fallbacks last.
+- **Filters** — over 40 static factories in `Filters` (e.g. `hasMessageText()`, `isPrivateChat()`, `textContains()`). Combine them with `.and()`, `.or()`, and `.negate()`.
+- **Dialogs** — `DialogImpl` maps enum states to `DialogPart` steps, each with its own filter, notification message, and handler. Scoped storage passes data between steps.
+- **Keyboards** — `InlineInteractiveButton` and `ReplyInteractiveButton` carry their own action lambdas. Register an `InteractiveKeyboardUpstreamHandler` and Strongram routes button presses automatically.
+- **SmartResponder** — send text, photos, documents, and videos with a single `ctx.getResponder().send(...)` call, without constructing Telegram-specific DTO objects manually.
+
+## Requirements
+
+- Java 17 or later
+- Maven 3.6 or later
+
+## Modules
+
+Strongram is split into three Maven modules:
+
+| Module | Description |
+|---|---|
+| `strongram-core` | Core abstractions: bot base classes, handler chain, filters, dialogs, keyboards, responder API |
+| `strongram-longpolling` | Long-polling transport adapter — wraps core with `LongPollingBotApplication` and `LongPollingBotAdapter` |
+| `strongram-webhook` | Webhook transport adapter — wraps core with `WebhookBotApplication` and `WebhookBotAdapter` |
+
+You add either `strongram-longpolling` or `strongram-webhook` as a dependency; `strongram-core` is pulled in transitively.
+
+## Architecture overview
+
+When a Telegram update arrives, Strongram processes it in three stages:
+
+1. **Upstream pipeline** — the update is wrapped in a `RequestContext` and passed to the first `UpstreamHandler` in your configured chain. Each handler either processes the update or calls `next` to forward it along.
+2. **Business logic** — your handler reads typed data from the context via `ctx.getRequest(As.messageText())`, interacts with dialogs or keyboards, and calls `ctx.getResponder().send(...)` to queue a reply.
+3. **Downstream pipeline** — before responses are sent, registered `DownstreamHandler` instances can transform or augment them (for example, attaching a default reply keyboard).
+
+<Note>
+`strongram-core` is never added directly. Declare `strongram-longpolling` or `strongram-webhook` in your `pom.xml` and the core module is included automatically.
+</Note>
+
+## Get started
+
+<CardGroup cols={3}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and run your first echo bot in four steps.
+  </Card>
+  <Card title="Installation" icon="box" href="/installation">
+    Add the Maven dependency for long polling or webhook.
+  </Card>
+  <Card title="Core concepts" icon="layer-group" href="/concepts/architecture">
+    Understand the handler chain, request context, and filters.
+  </Card>
+</CardGroup>
